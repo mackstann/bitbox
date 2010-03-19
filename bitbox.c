@@ -39,27 +39,27 @@ static time_t _get_second(void)
 
 // private bitarray functions
 
-static bitarray_t * bitarray_new(int first_bit)
+static void bitarray_init_data(bitarray_t * b, int start_bit)
+{
+    b->offset = start_bit/8;
+    b->size = MIN_ARRAY_SIZE;
+    b->array = (unsigned char *)calloc(b->size, 1);
+    CHECK(b->array);
+}
+
+static bitarray_t * bitarray_new(int start_bit)
 {
     DEBUG("bitarray_new\n");
     bitarray_t * b = (bitarray_t *)malloc(sizeof(bitarray_t));
     CHECK(b);
 
     b->last_access = _get_second();
+    b->offset = 0;
+    b->size = 0;
+    b->array = NULL;
 
-    if(first_bit > -1)
-    {
-        b->offset = first_bit/8;
-        b->size = MIN_ARRAY_SIZE;
-        b->array = (unsigned char *)calloc(b->size, 1);
-        CHECK(b->array);
-    }
-    else // initialize it later
-    {
-        b->offset = 0;
-        b->size = 0;
-        b->array = NULL;
-    }
+    if(start_bit > -1)
+        bitarray_init_data(b, start_bit);
 
     return b;
 }
@@ -128,6 +128,22 @@ static void bitarray_grow_down(bitarray_t * b, int new_size)
     DEBUG("after grow down -- new_size: %d new_begin: %d\n", new_size, new_begin);
 }
 
+static void bitarray_adjust_size_to_reach(bitarray_t * b, int new_index)
+{
+    if(BYTE_OFFSET(new_index) >= b->offset + b->size)
+    {
+        int min_increase_needed = BYTE_OFFSET(new_index) - b->offset + b->size;
+        int new_size = MAX(b->size + min_increase_needed, b->size * 2);
+        bitarray_grow_up(b, new_size);
+    }
+    if(BYTE_OFFSET(new_index) - b->offset < 0)
+    {
+        int min_increase_needed = b->offset - BYTE_OFFSET(new_index);
+        int new_size = MAX(b->size + min_increase_needed, b->size * 2);
+        bitarray_grow_down(b, new_size);
+    }
+}
+
 // public bitarray api
 
 int bitarray_get_bit(bitarray_t * b, int index)
@@ -161,22 +177,9 @@ void bitarray_set_bit(bitarray_t * b, int index)
     //free(buf);
 
     if(!b->array)
-    {
-        b->offset = index/8;
-        b->size = MIN_ARRAY_SIZE;
-        b->array = (unsigned char *)calloc(b->size, 1);
-        CHECK(b->array);
-    }
-    if(b->offset + b->size < BYTE_OFFSET(index)+1)
-        bitarray_grow_up(b, (index/8+1) * 2);
-    if(BYTE_OFFSET(index) - b->offset < 0)
-    {
-        int increase_needed = b->offset - BYTE_OFFSET(index);
-        int new_size = increase_needed + b->size;
-        if(new_size < b->size * 2)
-            new_size = b->size * 2;
-        bitarray_grow_down(b, new_size);
-    }
+        bitarray_init_data(b, index);
+
+    bitarray_adjust_size_to_reach(b, index);
 
     assert(index >= 0);
     assert(b->offset >= 0);

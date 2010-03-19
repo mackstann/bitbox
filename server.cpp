@@ -6,6 +6,10 @@
 #include <transport/TServerSocket.h>
 #include <transport/TBufferTransports.h>
 
+#include <vector>
+#include <sys/poll.h>
+#include <stdio.h>
+
 extern "C" {
 #include "bitbox.h"
 }
@@ -41,6 +45,25 @@ class BitboxHandler : virtual public BitboxIf {
         }
 };
 
+gboolean server_prepare_callback(GSource * source, gint * timeout_)
+{
+    *timeout_ = -1;
+    return FALSE;
+}
+
+gboolean server_check_callback(GSource * source)
+{
+    return TRUE;
+}
+
+TSimpleServer * global_server = NULL;
+gboolean server_dispatch_callback(GSource * source, GSourceFunc callback, gpointer user_data)
+{
+    global_server->serve();
+    return TRUE;
+}
+
+
 int main(int argc, char **argv) {
   int port = 9090;
   shared_ptr<BitboxHandler> handler(new BitboxHandler());
@@ -49,8 +72,43 @@ int main(int argc, char **argv) {
   shared_ptr<TTransportFactory> transportFactory(new TBufferedTransportFactory());
   shared_ptr<TProtocolFactory> protocolFactory(new TBinaryProtocolFactory());
 
-  TSimpleServer server(processor, serverTransport, transportFactory, protocolFactory);
-  server.serve();
+  TSimpleServer server(processor, serverTransport, transportFactory, protocolFactory, true);
+  global_server = &server;
+  serverTransport->listen();
+  std::vector<struct pollfd> fds = serverTransport->getFDs();
+
+  // add the server polling source to the main loop
+
+  GSourceFuncs sourcefuncs;
+
+  sourcefuncs.prepare = server_prepare_callback;
+  sourcefuncs.check = server_check_callback;
+  sourcefuncs.dispatch = server_dispatch_callback;
+  sourcefuncs.finalize = NULL;
+  sourcefuncs.closure_callback = NULL;
+  sourcefuncs.closure_marshal = NULL;
+
+  GSource * source = g_source_new(&sourcefuncs, sizeof(GSource));
+
+  for(std::vector<struct pollfd>::iterator it = fds.begin(); it != fds.end(); ++it)
+  {
+      GPollFD * gpfd = g_new(GPollFD, 1);
+      gpfd->fd = it->fd;
+      gpfd->events = G_IO_IN;
+      g_source_add_poll(source, gpfd);
+  }
+
+  g_source_attach(source, NULL);
+
+  // add the idle function to the main loop
+
+
+
+  // start the main loop
+
+  fprintf(stderr, "%d fds\n", fds.size());
+  GMainLoop * loop = g_main_loop_new(NULL, FALSE);
+  g_main_loop_run(loop);
   return 0;
 }
 

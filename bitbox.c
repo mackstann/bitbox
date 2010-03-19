@@ -78,7 +78,8 @@ static char * bitarray_freeze(bitarray_t * b)
     char * buffer = malloc(sizeof(int)*2 + b->size);
     ((int *)buffer)[0] = b->size;
     ((int *)buffer)[1] = b->offset;
-    memcpy(buffer + sizeof(int)*2, b->array, b->size);
+    if(b->array)
+        memcpy(buffer + sizeof(int)*2, b->array, b->size);
     return buffer;
 }
 
@@ -87,8 +88,11 @@ static bitarray_t * bitarray_thaw(const char * buffer)
     bitarray_t * b = bitarray_new(-1);
     b->size = ((int *)buffer)[0];
     b->offset = ((int *)buffer)[1];
-    b->array = malloc(b->size);
-    memcpy(b->array, buffer + sizeof(int)*2, b->size);
+    if(b->size)
+    {
+        b->array = malloc(b->size);
+        memcpy(b->array, buffer + sizeof(int)*2, b->size);
+    }
     return b;
 }
 
@@ -132,7 +136,7 @@ static void bitarray_adjust_size_to_reach(bitarray_t * b, int new_index)
 {
     if(BYTE_OFFSET(new_index) >= b->offset + b->size)
     {
-        int min_increase_needed = BYTE_OFFSET(new_index) - b->offset + b->size;
+        int min_increase_needed = BYTE_OFFSET(new_index) - (b->offset + b->size - 1);
         int new_size = MAX(b->size + min_increase_needed, b->size * 2);
         bitarray_grow_up(b, new_size);
     }
@@ -151,10 +155,10 @@ int bitarray_get_bit(bitarray_t * b, int index)
     DEBUG("bitarray_get_bit(index %d)\n", index);
     b->last_access = _get_second();
 
-    //char * buf = bitarray_freeze(b);
-    //bitarray_free(b);
-    //b = bitarray_thaw(buf);
-    //free(buf);
+    // char * buf = bitarray_freeze(b);
+    // bitarray_free(b);
+    // b = bitarray_thaw(buf);
+    // free(buf);
 
     if(!b->array || b->offset + b->size < index/8+1 || index/8 < b->offset)
     {
@@ -171,10 +175,10 @@ void bitarray_set_bit(bitarray_t * b, int index)
     DEBUG("bitarray_set_bit(index %d)\n", index);
     b->last_access = _get_second();
 
-    //char * buf = bitarray_freeze(b);
-    //bitarray_free(b);
-    //b = bitarray_thaw(buf);
-    //free(buf);
+    // char * buf = bitarray_freeze(b);
+    // bitarray_free(b);
+    // b = bitarray_thaw(buf);
+    // free(buf);
 
     if(!b->array)
         bitarray_init_data(b, index);

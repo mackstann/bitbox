@@ -12,7 +12,7 @@ LINK_FLAGS=`pkg-config --libs glib-2.0` -lthrift
 
 bitbox-server: gen-cpp bitbox.c bitbox.h server.cpp
 	gcc $(COMPILE_FLAGS) -c bitbox.c -o bitbox.o
-	gcc $(COMPILE_FLAGS) -c server.cpp -o server.o
+	gcc $(COMPILE_FLAGS) -c server.cpp -o server.o -std=gnu++0x
 	gcc $(COMPILE_FLAGS) -c gen-cpp/bitbox_constants.cpp -o bitbox_constants.o
 	gcc $(COMPILE_FLAGS) -c gen-cpp/bitbox_types.cpp -o bitbox_types.o
 	gcc $(COMPILE_FLAGS) -c gen-cpp/Bitbox.cpp -o Bitbox.o

@@ -94,7 +94,8 @@ static int bitarray_freeze(bitarray_t * b, char ** out_zbuffer, int * out_zbufle
         return 1;
     }
 
-    // compression resulted in larger data, so return uncompressed data.
+    // compression resulted in larger data (fairly common for tiny values), so
+    // return uncompressed data.
     *out_zbuffer = buffer;
     *out_zbuflen = *out_buflen;
     return 0;

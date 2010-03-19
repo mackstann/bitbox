@@ -21,14 +21,20 @@ keys = set()
 total_set = 0
 iterations = 0
 
-while True:
-    index = random.randint(0, 29999)
-    value_range_start = random.randint(0, 100000)
+range_size = 700
+num_keys = 30000
+array_size = 1000000
 
-    client.set_bits('foo%d' % index, range(value_range_start, value_range_start+500))
+while True:
+    index = random.randint(0, num_keys - 1)
+    value_range_start = random.randint(0, array_size - range_size - 1)
+
+    client.set_bits('foo%d' % index, range(value_range_start, value_range_start+range_size))
 
     keys.add(index)
-    total_set += 500
+    total_set += range_size
     iterations += 1
 
     print "have set %d bits on %d different keys in %d iterations" % (total_set, len(keys), iterations)
+    if total_set >= 1000*1000*1000:
+        raise SystemExit

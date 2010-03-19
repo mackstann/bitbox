@@ -1,0 +1,3 @@
+*.o
+bitbox-server
+gen-*

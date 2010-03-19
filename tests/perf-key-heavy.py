@@ -17,7 +17,13 @@ client = Bitbox.Client(protocol)
 
 transport.open()
 
+prefix = str('%0.12f' % random.random())
+
 for i in range(30000000):
     if i % 10000 == 0:
         print i
-    client.set_bit('foo%d' % i, 0)
+    key = prefix + str(i)
+    client.set_bit(key, 0)
+    if i % 10000 == 0:
+        assert client.get_bit(key, 0) == 1
+        assert client.get_bit(key, 1) == 0

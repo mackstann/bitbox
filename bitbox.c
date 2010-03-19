@@ -5,6 +5,7 @@
 #include <assert.h>
 
 #include <glib.h>
+#include <lzf.h>
 
 #include "bitbox.h"
 
@@ -73,18 +74,43 @@ static void bitarray_free(bitarray_t * b)
     free(b);
 }
 
-static char * bitarray_freeze(bitarray_t * b)
+static int bitarray_freeze(bitarray_t * b, char ** out_zbuffer, int * out_zbuflen, int * out_buflen)
 {
-    char * buffer = malloc(sizeof(int)*2 + b->size);
+    *out_buflen = sizeof(int)*2 + b->size;
+    char * buffer = malloc(*out_buflen);
     ((int *)buffer)[0] = b->size;
     ((int *)buffer)[1] = b->offset;
+
     if(b->array)
         memcpy(buffer + sizeof(int)*2, b->array, b->size);
-    return buffer;
+
+    *out_zbuffer = malloc(*out_buflen);
+    *out_zbuflen = lzf_compress(buffer, *out_buflen, *out_zbuffer, *out_buflen);
+
+    // compression succeeded
+    if(*out_zbuflen > 0)
+    {
+        free(buffer);
+        return 1;
+    }
+
+    // compression resulted in larger data, so return uncompressed data.
+    *out_zbuffer = buffer;
+    *out_zbuflen = *out_buflen;
+    return 0;
 }
 
-static bitarray_t * bitarray_thaw(const char * buffer)
+static bitarray_t * bitarray_thaw(char * zbuffer, int zbuflen, int buflen, int is_compressed)
 {
+    char * buffer;
+    if(is_compressed)
+    {
+        buffer = malloc(buflen);
+        lzf_decompress(zbuffer, zbuflen, buffer, buflen);
+    }
+    else
+        buffer = zbuffer;
+
     bitarray_t * b = bitarray_new(-1);
     b->size = ((int *)buffer)[0];
     b->offset = ((int *)buffer)[1];
@@ -93,6 +119,9 @@ static bitarray_t * bitarray_thaw(const char * buffer)
         b->array = malloc(b->size);
         memcpy(b->array, buffer + sizeof(int)*2, b->size);
     }
+    free(buffer);
+    if(zbuffer != buffer)
+        free(zbuffer);
     return b;
 }
 
@@ -155,12 +184,6 @@ int bitarray_get_bit(bitarray_t * b, int index)
     DEBUG("bitarray_get_bit(index %d)\n", index);
     b->last_access = _get_second();
 
-    char * buf = bitarray_freeze(b);
-    free(b->array);
-    bitarray_t * newb = bitarray_thaw(buf);
-    memcpy(b, newb, sizeof(bitarray_t));
-    free(newb);
-
     if(!b->array || b->offset + b->size < index/8+1 || index/8 < b->offset)
     {
         DEBUG("end of bitarray_get_bit\n");
@@ -176,9 +199,11 @@ void bitarray_set_bit(bitarray_t * b, int index)
     DEBUG("bitarray_set_bit(index %d)\n", index);
     b->last_access = _get_second();
 
-    char * buf = bitarray_freeze(b);
+    char * zbuf;
+    int zbuflen, buflen;
+    int is_compressed = bitarray_freeze(b, &zbuf, &zbuflen, &buflen);
     free(b->array);
-    bitarray_t * newb = bitarray_thaw(buf);
+    bitarray_t * newb = bitarray_thaw(zbuf, zbuflen, buflen, is_compressed);
     memcpy(b, newb, sizeof(bitarray_t));
     free(newb);
 

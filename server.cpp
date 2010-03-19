@@ -36,7 +36,7 @@ class BitboxHandler : virtual public BitboxIf {
 
         void set_bits(const std::string& key, const std::set<int32_t> & bits) {
             bitarray_t * b = bitbox_find_array(this->box, key.c_str());
-            for(auto it = bits.begin(); it != bits.end(); ++it)
+            for(std::set<int32_t>::const_iterator it = bits.begin(); it != bits.end(); ++it)
                 bitarray_set_bit(b, *it);
         }
 };

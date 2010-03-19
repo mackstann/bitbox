@@ -107,6 +107,7 @@ static bitarray_t * bitarray_thaw(char * zbuffer, int zbuflen, int buflen, int i
     {
         buffer = malloc(buflen);
         lzf_decompress(zbuffer, zbuflen, buffer, buflen);
+        free(zbuffer);
     }
     else
         buffer = zbuffer;
@@ -120,8 +121,6 @@ static bitarray_t * bitarray_thaw(char * zbuffer, int zbuflen, int buflen, int i
         memcpy(b->array, buffer + sizeof(int)*2, b->size);
     }
     free(buffer);
-    if(zbuffer != buffer)
-        free(zbuffer);
     return b;
 }
 

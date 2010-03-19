@@ -1,0 +1,22 @@
+Installing thrift:
+
+    sudo apt-get install libboost-dev automake libtool flex bison pkg-config g++
+
+    svn co http://svn.apache.org/repos/asf/incubator/thrift/trunk thrift
+    cd thrift
+    ./bootstrap.sh
+    ./configure
+    make
+    sudo make install
+
+    cd lib/cpp
+    sudo make install
+
+    cd ../lib/py
+    python setup.py build
+    sudo python setup.py install
+
+See also:
+
+    http://wiki.apache.org/thrift/ThriftRequirements
+    http://wiki.apache.org/thrift/ThriftInstallation

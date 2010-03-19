@@ -22,10 +22,9 @@ using namespace ::apache::thrift::server;
 using boost::shared_ptr;
 
 class BitboxHandler : virtual public BitboxIf {
-    private:
+    public:
         bitbox_t * box;
 
-    public:
         BitboxHandler() {
             this->box = bitbox_new();
         }
@@ -45,24 +44,38 @@ class BitboxHandler : virtual public BitboxIf {
         }
 };
 
-gboolean server_prepare_callback(GSource * source, gint * timeout_)
-{
+gboolean server_prepare_callback(GSource * source, gint * timeout_) {
     *timeout_ = -1;
     return FALSE;
 }
 
+typedef struct {
+    GSource source;
+    GPollFD poll_fd;
+} ServerSource;
+
 gboolean server_check_callback(GSource * source)
 {
-    return TRUE;
+    ServerSource * ssource = (ServerSource *)source;
+    //fprintf(stderr, "IO IN? %d\n", ssource->poll_fd.revents & G_IO_IN ? 1 : 0);
+    return ssource->poll_fd.revents & G_IO_IN ? TRUE : FALSE;
 }
 
 TSimpleServer * global_server = NULL;
 gboolean server_dispatch_callback(GSource * source, GSourceFunc callback, gpointer user_data)
 {
+    // XXX use g_source_set_callback() to do the callback properly without a global.
+    fprintf(stderr, "SERVE\n");
     global_server->serve();
     return TRUE;
 }
 
+gboolean idle_cleanup(gpointer data)
+{
+    bitbox_t * box = (bitbox_t *)data;
+    bitbox_cleanup_single_step(box);
+    return bitbox_cleanup_needed(box) ? TRUE : FALSE;
+}
 
 int main(int argc, char **argv) {
   int port = 9090;
@@ -74,7 +87,7 @@ int main(int argc, char **argv) {
 
   TSimpleServer server(processor, serverTransport, transportFactory, protocolFactory, true);
   global_server = &server;
-  serverTransport->listen();
+  serverTransport->listen(); // XXX should catch TTransportException
   std::vector<struct pollfd> fds = serverTransport->getFDs();
 
   // add the server polling source to the main loop
@@ -88,21 +101,18 @@ int main(int argc, char **argv) {
   sourcefuncs.closure_callback = NULL;
   sourcefuncs.closure_marshal = NULL;
 
-  GSource * source = g_source_new(&sourcefuncs, sizeof(GSource));
-
   for(std::vector<struct pollfd>::iterator it = fds.begin(); it != fds.end(); ++it)
   {
-      GPollFD * gpfd = g_new(GPollFD, 1);
-      gpfd->fd = it->fd;
-      gpfd->events = G_IO_IN;
-      g_source_add_poll(source, gpfd);
+      ServerSource * source = (ServerSource *)g_source_new(&sourcefuncs, sizeof(ServerSource));
+      source->poll_fd.fd = it->fd;
+      source->poll_fd.events = G_IO_IN;
+      g_source_add_poll((GSource *)source, &source->poll_fd);
+      g_source_attach((GSource *)source, NULL);
   }
-
-  g_source_attach(source, NULL);
 
   // add the idle function to the main loop
 
-
+  g_idle_add(idle_cleanup, handler->box);
 
   // start the main loop
 

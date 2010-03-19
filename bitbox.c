@@ -296,3 +296,13 @@ int bitbox_get_bit(bitbox_t * box, const char * key, int bit)
     return !b ? 0 : bitarray_get_bit(b, bit);
 }
 
+void bitbox_cleanup_single_step(bitbox_t * box)
+{
+    DEBUG("idle!\n");
+}
+
+int bitbox_cleanup_needed(bitbox_t * box)
+{
+    return 1;
+}
+

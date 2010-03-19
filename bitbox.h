@@ -16,6 +16,8 @@ bitbox_t * bitbox_new(void);
 void bitbox_free(bitbox_t * box);
 void bitbox_set_bit(bitbox_t * box, const char * key, int bit);
 int bitbox_get_bit(bitbox_t * box, const char * key, int bit);
+void bitbox_cleanup_single_step(bitbox_t * box);
+int bitbox_cleanup_needed(bitbox_t * box);
 
 // bitarray
 

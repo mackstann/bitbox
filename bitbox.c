@@ -74,21 +74,21 @@ static void bitarray_free(bitarray_t * b)
     free(b);
 }
 
-static int bitarray_freeze(bitarray_t * b, char ** out_zbuffer, int * out_zbuflen, int * out_buflen)
+static int bitarray_freeze(bitarray_t * b, unsigned char ** out_buffer, int * out_bufsize, int * uncompressed_size)
 {
-    *out_buflen = sizeof(int)*2 + b->size;
-    char * buffer = malloc(*out_buflen);
+    *uncompressed_size = sizeof(int)*2 + b->size;
+    unsigned char * buffer = malloc(*uncompressed_size);
     ((int *)buffer)[0] = b->size;
     ((int *)buffer)[1] = b->offset;
 
     if(b->array)
         memcpy(buffer + sizeof(int)*2, b->array, b->size);
 
-    *out_zbuffer = malloc(*out_buflen);
-    *out_zbuflen = lzf_compress(buffer, *out_buflen, *out_zbuffer, *out_buflen);
+    *out_buffer = malloc(*uncompressed_size);
+    *out_bufsize = lzf_compress(buffer, *uncompressed_size, *out_buffer, *uncompressed_size);
 
     // compression succeeded
-    if(*out_zbuflen > 0)
+    if(*out_bufsize > 0)
     {
         free(buffer);
         return 1;
@@ -96,22 +96,20 @@ static int bitarray_freeze(bitarray_t * b, char ** out_zbuffer, int * out_zbufle
 
     // compression resulted in larger data (fairly common for tiny values), so
     // return uncompressed data.
-    *out_zbuffer = buffer;
-    *out_zbuflen = *out_buflen;
+    *out_buffer = buffer;
+    *out_bufsize = *uncompressed_size;
     return 0;
 }
 
-static bitarray_t * bitarray_thaw(char * zbuffer, int zbuflen, int buflen, int is_compressed)
+static bitarray_t * bitarray_thaw(unsigned char * buffer, int bufsize, int uncompressed_size, int is_compressed)
 {
-    char * buffer;
     if(is_compressed)
     {
-        buffer = malloc(buflen);
-        lzf_decompress(zbuffer, zbuflen, buffer, buflen);
-        free(zbuffer);
+        unsigned char * tmp_buffer = malloc(uncompressed_size);
+        lzf_decompress(buffer, bufsize, tmp_buffer, uncompressed_size);
+        free(buffer);
+        buffer = tmp_buffer;
     }
-    else
-        buffer = zbuffer;
 
     bitarray_t * b = bitarray_new(-1);
     b->size = ((int *)buffer)[0];
@@ -200,11 +198,11 @@ void bitarray_set_bit(bitarray_t * b, int index)
     b->last_access = _get_second();
 
     // freeze and thaw, simply to stress that code path for now.
-    char * zbuf;
-    int zbuflen, buflen;
-    int is_compressed = bitarray_freeze(b, &zbuf, &zbuflen, &buflen);
+    unsigned char * buffer;
+    int bufsize, uncompressed_size;
+    int is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
     free(b->array);
-    bitarray_t * newb = bitarray_thaw(zbuf, zbuflen, buflen, is_compressed);
+    bitarray_t * newb = bitarray_thaw(buffer, bufsize, uncompressed_size, is_compressed);
     memcpy(b, newb, sizeof(bitarray_t));
     free(newb);
     // end freeze/thaw

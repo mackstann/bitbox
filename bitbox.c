@@ -198,6 +198,7 @@ void bitarray_set_bit(bitarray_t * b, int index)
     DEBUG("bitarray_set_bit(index %d)\n", index);
     b->last_access = _get_second();
 
+    // freeze and thaw, simply to stress that code path for now.
     char * zbuf;
     int zbuflen, buflen;
     int is_compressed = bitarray_freeze(b, &zbuf, &zbuflen, &buflen);
@@ -205,6 +206,7 @@ void bitarray_set_bit(bitarray_t * b, int index)
     bitarray_t * newb = bitarray_thaw(zbuf, zbuflen, buflen, is_compressed);
     memcpy(b, newb, sizeof(bitarray_t));
     free(newb);
+    // end freeze/thaw
 
     if(!b->array)
         bitarray_init_data(b, index);

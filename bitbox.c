@@ -155,11 +155,11 @@ int bitarray_get_bit(bitarray_t * b, int index)
     DEBUG("bitarray_get_bit(index %d)\n", index);
     b->last_access = _get_second();
 
-    // the bug is in bitarray_thaw!
-    // char * buf = bitarray_freeze(b);
-    // bitarray_free(b);
-    // b = bitarray_thaw(buf);
-    // free(buf);
+    char * buf = bitarray_freeze(b);
+    free(b->array);
+    bitarray_t * newb = bitarray_thaw(buf);
+    memcpy(b, newb, sizeof(bitarray_t));
+    free(newb);
 
     if(!b->array || b->offset + b->size < index/8+1 || index/8 < b->offset)
     {
@@ -176,10 +176,11 @@ void bitarray_set_bit(bitarray_t * b, int index)
     DEBUG("bitarray_set_bit(index %d)\n", index);
     b->last_access = _get_second();
 
-    // char * buf = bitarray_freeze(b);
-    // bitarray_free(b);
-    // b = bitarray_thaw(buf);
-    // free(buf);
+    char * buf = bitarray_freeze(b);
+    free(b->array);
+    bitarray_t * newb = bitarray_thaw(buf);
+    memcpy(b, newb, sizeof(bitarray_t));
+    free(newb);
 
     if(!b->array)
         bitarray_init_data(b, index);

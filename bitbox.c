@@ -155,6 +155,7 @@ int bitarray_get_bit(bitarray_t * b, int index)
     DEBUG("bitarray_get_bit(index %d)\n", index);
     b->last_access = _get_second();
 
+    // the bug is in bitarray_thaw!
     // char * buf = bitarray_freeze(b);
     // bitarray_free(b);
     // b = bitarray_thaw(buf);

@@ -30,6 +30,13 @@
 
 #define MIN_ARRAY_SIZE 1
 
+static time_t _get_second(void)
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec;
+}
+
 // private bitarray functions
 
 static bitarray_t * bitarray_new(int first_bit)
@@ -37,6 +44,8 @@ static bitarray_t * bitarray_new(int first_bit)
     DEBUG("bitarray_new\n");
     bitarray_t * b = (bitarray_t *)malloc(sizeof(bitarray_t));
     CHECK(b);
+
+    b->last_access = _get_second();
 
     if(first_bit > -1)
     {
@@ -47,8 +56,8 @@ static bitarray_t * bitarray_new(int first_bit)
     }
     else // initialize it later
     {
-        b->offset = -1;
-        b->size = -1;
+        b->offset = 0;
+        b->size = 0;
         b->array = NULL;
     }
 
@@ -59,9 +68,28 @@ static void bitarray_free(bitarray_t * b)
 {
     DEBUG("bitarray_free\n");
     assert(b);
-    assert(b->array);
-    free(b->array);
+    if(b->array)
+        free(b->array);
     free(b);
+}
+
+static char * bitarray_freeze(bitarray_t * b)
+{
+    char * buffer = malloc(sizeof(int)*2 + b->size);
+    ((int *)buffer)[0] = b->size;
+    ((int *)buffer)[1] = b->offset;
+    memcpy(buffer + sizeof(int)*2, b->array, b->size);
+    return buffer;
+}
+
+static bitarray_t * bitarray_thaw(const char * buffer)
+{
+    bitarray_t * b = bitarray_new(-1);
+    b->size = ((int *)buffer)[0];
+    b->offset = ((int *)buffer)[1];
+    b->array = malloc(b->size);
+    memcpy(b->array, buffer + sizeof(int)*2, b->size);
+    return b;
 }
 
 static void bitarray_grow_up(bitarray_t * b, int size)
@@ -100,29 +128,37 @@ static void bitarray_grow_down(bitarray_t * b, int new_size)
     DEBUG("after grow down -- new_size: %d new_begin: %d\n", new_size, new_begin);
 }
 
-static time_t _get_second(void)
-{
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return tv.tv_sec;
-}
-
 // public bitarray api
 
 int bitarray_get_bit(bitarray_t * b, int index)
 {
+    DEBUG("bitarray_get_bit(index %d)\n", index);
     b->last_access = _get_second();
 
-    if(!b->array || b->offset + b->size <= index/8+1)
-        return 0;
+    //char * buf = bitarray_freeze(b);
+    //bitarray_free(b);
+    //b = bitarray_thaw(buf);
+    //free(buf);
 
+    if(!b->array || b->offset + b->size < index/8+1 || index/8 < b->offset)
+    {
+        DEBUG("end of bitarray_get_bit\n");
+        return 0;
+    }
+
+    DEBUG("end of bitarray_get_bit\n");
     return BYTE_SLOT(b, index) & MASK(index) ? 1 : 0;
 }
 
 void bitarray_set_bit(bitarray_t * b, int index)
 {
-    //DEBUG("bitarray_set_bit(index %d)\n", index);
+    DEBUG("bitarray_set_bit(index %d)\n", index);
     b->last_access = _get_second();
+
+    //char * buf = bitarray_freeze(b);
+    //bitarray_free(b);
+    //b = bitarray_thaw(buf);
+    //free(buf);
 
     if(!b->array)
     {
@@ -131,13 +167,28 @@ void bitarray_set_bit(bitarray_t * b, int index)
         b->array = (unsigned char *)calloc(b->size, 1);
         CHECK(b->array);
     }
-
-    if(b->size < index/8+1)
+    if(b->offset + b->size < BYTE_OFFSET(index)+1)
         bitarray_grow_up(b, (index/8+1) * 2);
-    if(index/8 < b->offset)
-        bitarray_grow_down(b, b->size * 2);
+    if(BYTE_OFFSET(index) - b->offset < 0)
+    {
+        int increase_needed = b->offset - BYTE_OFFSET(index);
+        int new_size = increase_needed + b->size;
+        if(new_size < b->size * 2)
+            new_size = b->size * 2;
+        bitarray_grow_down(b, new_size);
+    }
 
+    assert(index >= 0);
+    assert(b->offset >= 0);
+    if(BYTE_OFFSET(index) - b->offset < 0)
+    {
+        DEBUG("index: %d\n", index);
+        DEBUG("b->offset: %d\n", b->offset);
+        abort();
+    }
+    assert(BYTE_OFFSET(index) - b->offset <  b->size);
     BYTE_SLOT(b, index) |= MASK(index);
+    DEBUG("end of bitarray_set_bit\n");
 }
 
 // public bitbox api

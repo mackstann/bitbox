@@ -123,6 +123,31 @@ static bitarray_t * bitarray_thaw(unsigned char * buffer, int bufsize, int uncom
     return b;
 }
 
+// XXX: g_file_set_contents writes to a temp file called
+// "key.RANDOM-GIBBERISH", which theoretically could be loaded accidentally if
+// someone requested that exact key at the right moment.  a more robust file
+// writing mechanism should eventually be used.
+static void bitarray_save_frozen(const char * key, const unsigned char * buffer, int bufsize, int uncompressed_size, int is_compressed)
+{
+    size_t file_size = sizeof(char) // is_compressed boolean
+                     + sizeof(int)  // uncompressed_size
+                     + bufsize;
+
+    char * contents = malloc(file_size);
+
+    memcpy(contents,                &is_compressed,     sizeof(char));
+    memcpy(contents + sizeof(char), &uncompressed_size, sizeof(int));
+    memcpy(contents + sizeof(char)
+                    + sizeof(int),  buffer, bufsize);
+
+    char * filename = g_strdup_printf("data/%s", key);
+
+    g_file_set_contents(filename, contents, file_size, NULL);
+
+    g_free(filename);
+    free(contents);
+}
+
 static void bitarray_grow_up(bitarray_t * b, int size)
 {
     DEBUG("bitarray_grow_up(new_size %d)\n", size);
@@ -197,16 +222,6 @@ void bitarray_set_bit(bitarray_t * b, int index)
     DEBUG("bitarray_set_bit(index %d)\n", index);
     b->last_access = _get_second();
 
-    // freeze and thaw, simply to stress that code path for now.
-    unsigned char * buffer;
-    int bufsize, uncompressed_size;
-    int is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
-    free(b->array);
-    bitarray_t * newb = bitarray_thaw(buffer, bufsize, uncompressed_size, is_compressed);
-    memcpy(b, newb, sizeof(bitarray_t));
-    free(newb);
-    // end freeze/thaw
-
     if(!b->array)
         bitarray_init_data(b, index);
 
@@ -267,6 +282,12 @@ void bitbox_set_bit(bitbox_t * box, const char * key, int bit)
 {
     bitarray_t * b = bitbox_find_array(box, key);
     bitarray_set_bit(b, bit);
+
+    unsigned char * buffer;
+    int bufsize, uncompressed_size;
+    int is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
+    bitarray_save_frozen(key, buffer, bufsize, uncompressed_size, is_compressed);
+    free(buffer);
 }
 
 int bitbox_get_bit(bitbox_t * box, const char * key, int bit)

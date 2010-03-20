@@ -278,16 +278,23 @@ bitarray_t * bitbox_find_array(bitbox_t * box, const char * key)
     return b;
 }
 
-void bitbox_set_bit(bitbox_t * box, const char * key, int bit)
+void bitbox_set_bit_nolookup(bitbox_t * box, const char * key, bitarray_t * b, int bit)
 {
-    bitarray_t * b = bitbox_find_array(box, key);
+    int old_size = b->size;
     bitarray_set_bit(b, bit);
+    box->size += b->size - old_size;
 
     unsigned char * buffer;
     int bufsize, uncompressed_size;
     int is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
     bitarray_save_frozen(key, buffer, bufsize, uncompressed_size, is_compressed);
     free(buffer);
+}
+
+void bitbox_set_bit(bitbox_t * box, const char * key, int bit)
+{
+    bitarray_t * b = bitbox_find_array(box, key);
+    bitbox_set_bit_nolookup(box, key, b, bit);
 }
 
 int bitbox_get_bit(bitbox_t * box, const char * key, int bit)

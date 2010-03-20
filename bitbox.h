@@ -4,21 +4,6 @@
 #include <sys/time.h>
 #include <glib.h>
 
-// bitbox
-
-typedef struct {
-    // this should probably be opaque to the outside world but i'm not sure of
-    // the C-foo to do that correctly.
-    GHashTable * hash;
-} bitbox_t;
-
-bitbox_t * bitbox_new(void);
-void bitbox_free(bitbox_t * box);
-void bitbox_set_bit(bitbox_t * box, const char * key, int bit);
-int bitbox_get_bit(bitbox_t * box, const char * key, int bit);
-void bitbox_cleanup_single_step(bitbox_t * box);
-int bitbox_cleanup_needed(bitbox_t * box);
-
 // bitarray
 
 typedef struct {
@@ -33,8 +18,22 @@ typedef struct {
     time_t last_access;
 } bitarray_t;
 
-int bitarray_get_bit(bitarray_t * b, int index);
-void bitarray_set_bit(bitarray_t * b, int index);
+// bitbox
+
+typedef struct {
+    // this should probably be opaque to the outside world but i'm not sure of
+    // the C-foo to do that correctly.
+    GHashTable * hash;
+    int size; // sum of the sizes of all bitarrays it holds
+} bitbox_t;
+
+bitbox_t * bitbox_new(void);
+void bitbox_free(bitbox_t * box);
+void bitbox_set_bit(bitbox_t * box, const char * key, int bit);
+void bitbox_set_bit_nolookup(bitbox_t * box, const char * key, bitarray_t * b, int bit);
+int bitbox_get_bit(bitbox_t * box, const char * key, int bit);
+void bitbox_cleanup_single_step(bitbox_t * box);
+int bitbox_cleanup_needed(bitbox_t * box);
 bitarray_t * bitbox_find_array(bitbox_t * box, const char * key);
 
 #endif

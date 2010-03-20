@@ -25,6 +25,7 @@ typedef struct {
     // the C-foo to do that correctly.
     GHashTable * hash;
     int size; // sum of the sizes of all bitarrays it holds
+    int memory_limit;
 } bitbox_t;
 
 bitbox_t * bitbox_new(void);

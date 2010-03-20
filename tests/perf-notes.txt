@@ -1,7 +1,9 @@
 measurements done on an intel core quad 2.5ghz
 
 * measuring key-heavy workloads:
-    * uses about 8MB per 100k keys (with 1 byte values) (~80 bytes per key)
+    * uses about 15MB per 200k keys
+        * with 5-10 byte keys and 1 byte values
+        * ~75 bytes per key
     * takes about 1 second to create 10k new keys
 
 * measuring value-heavy workloads:

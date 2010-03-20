@@ -248,6 +248,8 @@ bitbox_t * bitbox_new(void)
     CHECK(box);
     box->hash = g_hash_table_new(g_str_hash, g_str_equal);
     CHECK(box->hash);
+    box->size = 0;
+    box->memory_limit = 0;
     return box;
 }
 
@@ -284,11 +286,11 @@ void bitbox_set_bit_nolookup(bitbox_t * box, const char * key, bitarray_t * b, i
     bitarray_set_bit(b, bit);
     box->size += b->size - old_size;
 
-    unsigned char * buffer;
-    int bufsize, uncompressed_size;
-    int is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
-    bitarray_save_frozen(key, buffer, bufsize, uncompressed_size, is_compressed);
-    free(buffer);
+    // unsigned char * buffer;
+    // int bufsize, uncompressed_size;
+    // int is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
+    // bitarray_save_frozen(key, buffer, bufsize, uncompressed_size, is_compressed);
+    // free(buffer);
 }
 
 void bitbox_set_bit(bitbox_t * box, const char * key, int bit)
@@ -305,11 +307,11 @@ int bitbox_get_bit(bitbox_t * box, const char * key, int bit)
 
 void bitbox_cleanup_single_step(bitbox_t * box)
 {
-    DEBUG("idle!\n");
+    DEBUG("using %d bytes in bitarrays\n", box->size);
 }
 
 int bitbox_cleanup_needed(bitbox_t * box)
 {
-    return 1;
+    return box->size > box->memory_limit;
 }
 

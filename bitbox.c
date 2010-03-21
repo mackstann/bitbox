@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/time.h>
+#include <inttypes.h>
 #include <assert.h>
 
 // stat
@@ -45,7 +46,7 @@ static time_t _get_second(void)
 
 // private bitarray functions
 
-static void bitarray_init_data(bitarray_t * b, int start_bit)
+static void bitarray_init_data(bitarray_t * b, int64_t start_bit)
 {
     b->offset = start_bit/8;
     b->size = MIN_ARRAY_SIZE;
@@ -53,7 +54,7 @@ static void bitarray_init_data(bitarray_t * b, int start_bit)
     CHECK(b->array);
 }
 
-static bitarray_t * bitarray_new(int start_bit)
+static bitarray_t * bitarray_new(int64_t start_bit)
 {
     DEBUG("bitarray_new\n");
     bitarray_t * b = (bitarray_t *)malloc(sizeof(bitarray_t));
@@ -84,14 +85,14 @@ static void bitarray_dump(bitarray_t * b)
 #ifdef NDEBUG
     return;
 #endif
-    int i, j;
-    DEBUG("-- DUMP starting at offset %d --\n", b->offset);
-    DEBUG("-- size: %d array address: %x --\n", b->size, (long)b->array);
+    int64_t i, j;
+    DEBUG("-- DUMP starting at offset %ld --\n", b->offset);
+    DEBUG("-- size: %ld array address: %lx --\n", b->size, (long)b->array);
     for(i = 0; i < b->size; i++)
     {
         if(b->array[i] == 0)
             continue;
-        DEBUG("%08d ", i);
+        DEBUG("%08ld ", i);
         for(j = 0; j < 8; j++)
             DEBUG((b->array[i] & MASK(j)) ? "1 " : "0 ");
         DEBUG("\n");
@@ -99,20 +100,20 @@ static void bitarray_dump(bitarray_t * b)
     DEBUG("\n");
 }
 
-static int bitarray_freeze(bitarray_t * b, unsigned char ** out_buffer, size_t * out_bufsize, size_t * uncompressed_size)
+static int bitarray_freeze(bitarray_t * b, unsigned char ** out_buffer, int64_t * out_bufsize, int64_t * uncompressed_size)
 {
     DEBUG("bitarray_freeze\n");
     bitarray_dump(b);
     CHECK((b->size && b->array) || (!b->size && !b->array));
-    *uncompressed_size = sizeof(size_t) + sizeof(int) + b->size;
+    *uncompressed_size = sizeof(int64_t)*2 + b->size;
     unsigned char * buffer = malloc(*uncompressed_size);
-    ((size_t *)buffer)[0] = b->size;
-    ((int *)(buffer + sizeof(size_t)))[0] = b->offset;
+    ((int64_t *)buffer)[0] = b->size;
+    ((int64_t *)buffer)[1] = b->offset;
 
     if(b->array)
     {
-        DEBUG("copying %d bytes, offset by %d bytes\n", b->size, sizeof(int)*2);
-        memcpy(buffer + sizeof(size_t) + sizeof(int), b->array, b->size);
+        DEBUG("copying %ld bytes, offset by %ld bytes\n", b->size, sizeof(int64_t)*2);
+        memcpy(buffer + sizeof(int64_t)*2, b->array, b->size);
     }
 
     *out_buffer = malloc(*uncompressed_size);
@@ -133,7 +134,7 @@ static int bitarray_freeze(bitarray_t * b, unsigned char ** out_buffer, size_t *
     return 0;
 }
 
-static bitarray_t * bitarray_thaw(unsigned char * buffer, size_t bufsize, size_t uncompressed_size, int is_compressed)
+static bitarray_t * bitarray_thaw(unsigned char * buffer, int64_t bufsize, int64_t uncompressed_size, int is_compressed)
 {
     DEBUG("bitarray_thaw\n");
     if(is_compressed)
@@ -147,13 +148,13 @@ static bitarray_t * bitarray_thaw(unsigned char * buffer, size_t bufsize, size_t
         CHECK(uncompressed_size == bufsize);
 
     bitarray_t * b = bitarray_new(-1);
-    b->size = ((size_t *)buffer)[0];
-    b->offset = ((int *)(buffer + sizeof(size_t)))[0];
+    b->size   = ((int64_t *)buffer)[0];
+    b->offset = ((int64_t *)buffer)[1];
     b->array = NULL;
     if(b->size)
     {
         b->array = malloc(b->size);
-        memcpy(b->array, buffer + sizeof(size_t) + sizeof(int), b->size);
+        memcpy(b->array, buffer + sizeof(int64_t)*2, b->size);
     }
     free(buffer);
     bitarray_dump(b);
@@ -164,20 +165,20 @@ static bitarray_t * bitarray_thaw(unsigned char * buffer, size_t bufsize, size_t
 // "key.RANDOM-GIBBERISH", which theoretically could be loaded accidentally if
 // someone requested that exact key at the right moment.  a more robust file
 // writing mechanism should eventually be used.
-static void bitarray_save_frozen(const char * key, unsigned char * buffer, size_t bufsize, size_t uncompressed_size, int is_compressed)
+static void bitarray_save_frozen(const char * key, unsigned char * buffer, int64_t bufsize, int64_t uncompressed_size, int is_compressed)
 {
-    DEBUG("uncompressed_size at save: %d\n", (int)uncompressed_size);
+    DEBUG("uncompressed_size at save: %ld\n", (int64_t)uncompressed_size);
 
-    size_t file_size = sizeof(char)   // is_compressed boolean
-                     + sizeof(size_t) // uncompressed_size
-                     + bufsize;
+    int64_t file_size = sizeof(char)   // is_compressed boolean
+                      + sizeof(int64_t) // uncompressed_size
+                      + bufsize;
 
     unsigned char * contents = malloc(file_size);
 
     memcpy(contents,                &is_compressed,     sizeof(char));
-    memcpy(contents + sizeof(char), &uncompressed_size, sizeof(size_t));
+    memcpy(contents + sizeof(char), &uncompressed_size, sizeof(int64_t));
     memcpy(contents + sizeof(char)
-                    + sizeof(size_t), buffer, bufsize);
+                    + sizeof(int64_t), buffer, bufsize);
 
     char * filename = g_strdup_printf("data/%s", key);
 
@@ -188,29 +189,29 @@ static void bitarray_save_frozen(const char * key, unsigned char * buffer, size_
     free(buffer);
 }
 
-static void bitarray_load_frozen(const char * key, unsigned char ** buffer, size_t * bufsize, size_t * uncompressed_size, int * is_compressed)
+static void bitarray_load_frozen(const char * key, unsigned char ** buffer, int64_t * bufsize, int64_t * uncompressed_size, int * is_compressed)
 {
     char * filename = g_strdup_printf("data/%s", key);
-    size_t file_size;
+    int64_t file_size;
     unsigned char * contents;
 
     g_file_get_contents(filename, &contents, &file_size, NULL); // XXX error handling
     g_free(filename);
 
     *is_compressed = contents[0];
-    *uncompressed_size = ((size_t *)(contents + sizeof(char)))[0];
-    *bufsize = file_size - (sizeof(char) + sizeof(size_t));
+    *uncompressed_size = ((int64_t *)(contents + sizeof(char)))[0];
+    *bufsize = file_size - (sizeof(char) + sizeof(int64_t));
 
     *buffer = malloc(*bufsize);
-    memcpy(*buffer, contents + sizeof(char) + sizeof(size_t), *bufsize);
+    memcpy(*buffer, contents + sizeof(char) + sizeof(int64_t), *bufsize);
     g_free(contents);
 
-    DEBUG("uncompressed_size at load: %d\n", (int)*uncompressed_size);
+    DEBUG("uncompressed_size at load: %ld\n", (int64_t)*uncompressed_size);
 }
 
-static void bitarray_grow_up(bitarray_t * b, int size)
+static void bitarray_grow_up(bitarray_t * b, int64_t size)
 {
-    DEBUG("bitarray_grow_up(new_size %d)\n", size);
+    DEBUG("bitarray_grow_up(new_size %ld)\n", size);
     unsigned char * new_array = (unsigned char *)calloc(size, 1);
     memcpy(new_array, b->array, b->size);
     free(b->array);
@@ -218,13 +219,13 @@ static void bitarray_grow_up(bitarray_t * b, int size)
     b->size = size;
 }
 
-static void bitarray_grow_down(bitarray_t * b, int new_size)
+static void bitarray_grow_down(bitarray_t * b, int64_t new_size)
 {
-    DEBUG("bitarray_grow_down(new_size %d) (formerly size %d)\n", new_size, b->size);
+    DEBUG("bitarray_grow_down(new_size %ld) (formerly size %ld)\n", new_size, b->size);
 
     // move the starting point back
-    int grow_by = new_size - b->size;
-    int new_begin = b->offset - grow_by;
+    int64_t grow_by = new_size - b->size;
+    int64_t new_begin = b->offset - grow_by;
 
     // if we went too far, past 0, then just reset the start to 0.
     if(new_begin < 0)
@@ -241,30 +242,30 @@ static void bitarray_grow_down(bitarray_t * b, int new_size)
     b->array = new_array;
     b->size = new_size;
     b->offset = new_begin;
-    DEBUG("after grow down -- new_size: %d new_begin: %d\n", new_size, new_begin);
+    DEBUG("after grow down -- new_size: %ld new_begin: %ld\n", new_size, new_begin);
 }
 
-static void bitarray_adjust_size_to_reach(bitarray_t * b, int new_index)
+static void bitarray_adjust_size_to_reach(bitarray_t * b, int64_t new_index)
 {
     if(BYTE_OFFSET(new_index) >= b->offset + b->size)
     {
-        int min_increase_needed = BYTE_OFFSET(new_index) - (b->offset + b->size - 1);
-        int new_size = MAX(b->size + min_increase_needed, b->size * 2);
+        int64_t min_increase_needed = BYTE_OFFSET(new_index) - (b->offset + b->size - 1);
+        int64_t new_size = MAX(b->size + min_increase_needed, b->size * 2);
         bitarray_grow_up(b, new_size);
     }
     if(BYTE_OFFSET(new_index) - b->offset < 0)
     {
-        int min_increase_needed = b->offset - BYTE_OFFSET(new_index);
-        int new_size = MAX(b->size + min_increase_needed, b->size * 2);
+        int64_t min_increase_needed = b->offset - BYTE_OFFSET(new_index);
+        int64_t new_size = MAX(b->size + min_increase_needed, b->size * 2);
         bitarray_grow_down(b, new_size);
     }
 }
 
 // public bitarray api
 
-int bitarray_get_bit(bitarray_t * b, int index)
+int bitarray_get_bit(bitarray_t * b, int64_t index)
 {
-    DEBUG("bitarray_get_bit(index %d)\n", index);
+    DEBUG("bitarray_get_bit(index %ld)\n", index);
     b->last_access = _get_second();
 
     if(!b->array || b->offset + b->size < index/8+1 || index/8 < b->offset)
@@ -277,9 +278,9 @@ int bitarray_get_bit(bitarray_t * b, int index)
     return BYTE_SLOT(b, index) & MASK(index) ? 1 : 0;
 }
 
-void bitarray_set_bit(bitarray_t * b, int index)
+void bitarray_set_bit(bitarray_t * b, int64_t index)
 {
-    DEBUG("bitarray_set_bit(index %d)\n", index);
+    DEBUG("bitarray_set_bit(index %ld)\n", index);
     b->last_access = _get_second();
 
     if(!b->array)
@@ -291,8 +292,8 @@ void bitarray_set_bit(bitarray_t * b, int index)
     assert(b->offset >= 0);
     if(BYTE_OFFSET(index) - b->offset < 0)
     {
-        DEBUG("index: %d\n", index);
-        DEBUG("b->offset: %d\n", b->offset);
+        DEBUG("index: %ld\n", index);
+        DEBUG("b->offset: %ld\n", b->offset);
         abort();
     }
     assert(BYTE_OFFSET(index) - b->offset <  b->size);
@@ -341,15 +342,15 @@ bitarray_t * bitbox_find_array(bitbox_t * box, const char * key)
     return b;
 }
 
-void bitbox_set_bit_nolookup(bitbox_t * box, const char * key, bitarray_t * b, int bit)
+void bitbox_set_bit_nolookup(bitbox_t * box, const char * key, bitarray_t * b, int64_t bit)
 {
-    int old_size = b->size;
+    int64_t old_size = b->size;
     bitarray_set_bit(b, bit);
     box->size += b->size - old_size;
 
     unsigned char * buffer;
-    size_t bufsize;
-    size_t uncompressed_size;
+    int64_t bufsize;
+    int64_t uncompressed_size;
 
     // freeze
     int is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
@@ -368,13 +369,13 @@ void bitbox_set_bit_nolookup(bitbox_t * box, const char * key, bitarray_t * b, i
     g_hash_table_insert(box->hash, strdup(key), b);
 }
 
-void bitbox_set_bit(bitbox_t * box, const char * key, int bit)
+void bitbox_set_bit(bitbox_t * box, const char * key, int64_t bit)
 {
     bitarray_t * b = bitbox_find_array(box, key);
     bitbox_set_bit_nolookup(box, key, b, bit);
 }
 
-int bitbox_get_bit(bitbox_t * box, const char * key, int bit)
+int bitbox_get_bit(bitbox_t * box, const char * key, int64_t bit)
 {
     bitarray_t * b = (bitarray_t *)g_hash_table_lookup(box->hash, key);
     return !b ? 0 : bitarray_get_bit(b, bit);
@@ -382,7 +383,7 @@ int bitbox_get_bit(bitbox_t * box, const char * key, int bit)
 
 void bitbox_cleanup_single_step(bitbox_t * box)
 {
-    DEBUG("using %d bytes in bitarrays\n", box->size);
+    DEBUG("using %ld bytes in bitarrays\n", box->size);
 }
 
 int bitbox_cleanup_needed(bitbox_t * box)

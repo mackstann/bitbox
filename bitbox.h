@@ -16,17 +16,23 @@ typedef struct {
     int64_t offset;
 
     // so we can flush less-used data to disk.
-    time_t last_access;
+    int last_access;
+    char * name;
 } bitarray_t;
 
 // bitbox
 
 typedef struct {
-    // this should probably be opaque to the outside world but i'm not sure of
-    // the C-foo to do that correctly.
+    // the main way we access data.  the key is an arbitrary string and the
+    // value is a bitarray_t.
     GHashTable * hash;
+
+    // we use this to implement efficient dump-to-disk behavior.  the key is a
+    // timestamp and the value corresponds to a key in the hash.
+    GTree * lru;
+
     int64_t size; // sum of the sizes of all bitarrays it holds
-    int64_t memory_limit;
+    int cleanup_needed;
 } bitbox_t;
 
 bitbox_t * bitbox_new(void);

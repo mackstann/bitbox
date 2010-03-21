@@ -30,22 +30,30 @@ class BitboxHandler : virtual public BitboxIf {
             this->box = bitbox_new();
         }
 
-        bool get_bit(const std::string& key, const int64_t bit) {
+        bool get_bit(const std::string& key, const int64_t bit)
+        {
             return bitbox_get_bit(this->box, key.c_str(), bit);
         }
 
-        void set_bit(const std::string& key, const int64_t bit) {
+        void set_bit(const std::string& key, const int64_t bit)
+        {
             bitbox_set_bit(this->box, key.c_str(), bit);
         }
 
-        void set_bits(const std::string& key, const std::set<int64_t> & bits) {
+        void set_bits(const std::string& key, const std::set<int64_t> & bits)
+        {
+            bitarray_t * b = bitbox_find_array(this->box, key.c_str());
             for(std::set<int64_t>::const_iterator it = bits.begin(); it != bits.end(); ++it)
-            {
-                bitarray_t * b = bitbox_find_array(this->box, key.c_str());
                 bitbox_set_bit_nolookup(this->box, key.c_str(), b, *it);
-            }
         }
 };
+
+gboolean idle_cleanup(gpointer data)
+{
+    bitbox_t * box = (bitbox_t *)data;
+    bitbox_cleanup_single_step(box);
+    return TRUE;
+}
 
 gboolean server_prepare_callback(GSource * source, gint * timeout_) {
     *timeout_ = -1;
@@ -71,13 +79,6 @@ gboolean server_dispatch_callback(GSource * source, GSourceFunc callback, gpoint
     fprintf(stderr, "SERVE\n");
     global_server->serve();
     return TRUE;
-}
-
-gboolean idle_cleanup(gpointer data)
-{
-    bitbox_t * box = (bitbox_t *)data;
-    bitbox_cleanup_single_step(box);
-    return bitbox_cleanup_needed(box) ? TRUE : FALSE;
 }
 
 int main(int argc, char **argv) {

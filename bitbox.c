@@ -37,11 +37,13 @@
 
 #define MIN_ARRAY_SIZE 1
 
-static time_t _get_second(void)
+#define MEMORY_LIMIT 100
+
+static int _get_second(void)
 {
     struct timeval tv;
     gettimeofday(&tv, NULL);
-    return tv.tv_sec;
+    return (int)tv.tv_sec;
 }
 
 // private bitarray functions
@@ -64,6 +66,7 @@ static bitarray_t * bitarray_new(int64_t start_bit)
     b->offset = 0;
     b->size = 0;
     b->array = NULL;
+    b->name = NULL;
 
     if(start_bit > -1)
         bitarray_init_data(b, start_bit);
@@ -75,6 +78,8 @@ static void bitarray_free(bitarray_t * b)
 {
     DEBUG("bitarray_free\n");
     assert(b);
+    if(b->name)
+        free(b->name);
     if(b->array)
         free(b->array);
     free(b);
@@ -304,14 +309,26 @@ void bitarray_set_bit(bitarray_t * b, int64_t index)
 
 // public bitbox api
 
+gint timestamp_compare(gconstpointer ap, gconstpointer bp)
+{
+    gint a = GPOINTER_TO_INT(ap);
+    gint b = GPOINTER_TO_INT(bp);
+    return a == b ? 0 : (a < b ? -1 : 1);
+}
+
 bitbox_t * bitbox_new(void)
 {
     bitbox_t * box = (bitbox_t *)malloc(sizeof(bitbox_t));
     CHECK(box);
+
     box->hash = g_hash_table_new(g_str_hash, g_str_equal);
     CHECK(box->hash);
+
+    box->lru = g_tree_new(timestamp_compare);
+
     box->size = 0;
-    box->memory_limit = 0;
+    box->cleanup_needed = 0;
+
     return box;
 }
 
@@ -327,6 +344,8 @@ void bitbox_free(bitbox_t * box)
         bitarray_free((bitarray_t *)value);
     }
 
+    g_tree_destroy(box->lru);
+
     g_hash_table_destroy(box->hash);
     free(box);
 }
@@ -337,57 +356,70 @@ bitarray_t * bitbox_find_array(bitbox_t * box, const char * key)
     if(!b)
     {
         b = bitarray_new(-1);
-        g_hash_table_insert(box->hash, strdup(key), b);
+        b->name = strdup(key);
+        g_hash_table_insert(box->hash, b->name, b);
     }
     return b;
 }
 
 void bitbox_set_bit_nolookup(bitbox_t * box, const char * key, bitarray_t * b, int64_t bit)
 {
+    int old_timestamp = b->last_access;
     int64_t old_size = b->size;
     bitarray_set_bit(b, bit);
     box->size += b->size - old_size;
+    g_tree_remove(box->lru, GINT_TO_POINTER(old_timestamp));
+    g_tree_insert(box->lru, GINT_TO_POINTER(b->last_access), b);
 
-    uint8_t * buffer;
-    int64_t bufsize;
-    int64_t uncompressed_size;
+    // uint8_t * buffer;
+    // int64_t bufsize;
+    // int64_t uncompressed_size;
 
-    // freeze
-    uint8_t is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
-    bitarray_free(b);
+    // // freeze
+    // uint8_t is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
+    // bitarray_free(b);
 
-    // save
-    bitarray_save_frozen(key, buffer, bufsize, uncompressed_size, is_compressed);
+    // // save
+    // bitarray_save_frozen(key, buffer, bufsize, uncompressed_size, is_compressed);
 
-    // load
-    bitarray_load_frozen(key, &buffer, &bufsize, &uncompressed_size, &is_compressed);
+    // // load
+    // bitarray_load_frozen(key, &buffer, &bufsize, &uncompressed_size, &is_compressed);
 
-    // unfreeze
-    b = bitarray_thaw(buffer, bufsize, uncompressed_size, is_compressed);
+    // // unfreeze
+    // b = bitarray_thaw(buffer, bufsize, uncompressed_size, is_compressed);
 
-    g_hash_table_remove(box->hash, key); // XXX the key gets leaked here -- should use g_hash_table_new_full
-    g_hash_table_insert(box->hash, strdup(key), b);
+    // g_hash_table_remove(box->hash, key); // XXX the key gets leaked here -- should use g_hash_table_new_full
+    // g_hash_table_insert(box->hash, strdup(key), b);
 }
 
 void bitbox_set_bit(bitbox_t * box, const char * key, int64_t bit)
 {
     bitarray_t * b = bitbox_find_array(box, key);
     bitbox_set_bit_nolookup(box, key, b, bit);
+    box->cleanup_needed = box->size >= MEMORY_LIMIT;
 }
 
 int bitbox_get_bit(bitbox_t * box, const char * key, int64_t bit)
 {
     bitarray_t * b = (bitarray_t *)g_hash_table_lookup(box->hash, key);
-    return !b ? 0 : bitarray_get_bit(b, bit);
+    if(!b)
+        return 0;
+    int old_timestamp = b->last_access;
+    int retval = bitarray_get_bit(b, bit);
+    g_tree_remove(box->lru, GINT_TO_POINTER(old_timestamp));
+    g_tree_insert(box->lru, GINT_TO_POINTER(b->last_access), b);
+    return retval;
 }
 
 void bitbox_cleanup_single_step(bitbox_t * box)
 {
     DEBUG("using %ld bytes in bitarrays\n", box->size);
+    if(box->size >= MEMORY_LIMIT)
+        DEBUG("CLEANUP!\n");
 }
 
 int bitbox_cleanup_needed(bitbox_t * box)
 {
-    return box->size > box->memory_limit;
+    return box->cleanup_needed;
 }
 

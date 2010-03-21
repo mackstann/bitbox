@@ -169,15 +169,15 @@ static void bitarray_save_frozen(const char * key, uint8_t * buffer, int64_t buf
 {
     DEBUG("uncompressed_size at save: %ld\n", (int64_t)uncompressed_size);
 
-    int64_t file_size = sizeof(char)   // is_compressed boolean
+    int64_t file_size = sizeof(uint8_t) // is_compressed boolean
                       + sizeof(int64_t) // uncompressed_size
                       + bufsize;
 
     uint8_t * contents = malloc(file_size);
 
-    memcpy(contents,                &is_compressed,     sizeof(char));
-    memcpy(contents + sizeof(char), &uncompressed_size, sizeof(int64_t));
-    memcpy(contents + sizeof(char)
+    memcpy(contents,                   &is_compressed,     sizeof(uint8_t));
+    memcpy(contents + sizeof(uint8_t), &uncompressed_size, sizeof(int64_t));
+    memcpy(contents + sizeof(uint8_t)
                     + sizeof(int64_t), buffer, bufsize);
 
     char * filename = g_strdup_printf("data/%s", key);
@@ -199,11 +199,11 @@ static void bitarray_load_frozen(const char * key, uint8_t ** buffer, int64_t * 
     g_free(filename);
 
     *is_compressed = contents[0];
-    *uncompressed_size = ((int64_t *)(contents + sizeof(char)))[0];
+    *uncompressed_size = ((int64_t *)(contents + sizeof(uint8_t)))[0];
     *bufsize = file_size - (sizeof(char) + sizeof(int64_t));
 
     *buffer = malloc(*bufsize);
-    memcpy(*buffer, contents + sizeof(char) + sizeof(int64_t), *bufsize);
+    memcpy(*buffer, contents + sizeof(uint8_t) + sizeof(int64_t), *bufsize);
     g_free(contents);
 
     DEBUG("uncompressed_size at load: %ld\n", (int64_t)*uncompressed_size);

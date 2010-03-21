@@ -134,7 +134,7 @@ static int bitarray_freeze(bitarray_t * b, uint8_t ** out_buffer, int64_t * out_
     return 0;
 }
 
-static bitarray_t * bitarray_thaw(uint8_t * buffer, int64_t bufsize, int64_t uncompressed_size, int is_compressed)
+static bitarray_t * bitarray_thaw(uint8_t * buffer, int64_t bufsize, int64_t uncompressed_size, uint8_t is_compressed)
 {
     DEBUG("bitarray_thaw\n");
     if(is_compressed)
@@ -165,7 +165,7 @@ static bitarray_t * bitarray_thaw(uint8_t * buffer, int64_t bufsize, int64_t unc
 // "key.RANDOM-GIBBERISH", which theoretically could be loaded accidentally if
 // someone requested that exact key at the right moment.  a more robust file
 // writing mechanism should eventually be used.
-static void bitarray_save_frozen(const char * key, uint8_t * buffer, int64_t bufsize, int64_t uncompressed_size, int is_compressed)
+static void bitarray_save_frozen(const char * key, uint8_t * buffer, int64_t bufsize, int64_t uncompressed_size, uint8_t is_compressed)
 {
     DEBUG("uncompressed_size at save: %ld\n", (int64_t)uncompressed_size);
 
@@ -189,7 +189,7 @@ static void bitarray_save_frozen(const char * key, uint8_t * buffer, int64_t buf
     free(buffer);
 }
 
-static void bitarray_load_frozen(const char * key, uint8_t ** buffer, int64_t * bufsize, int64_t * uncompressed_size, int * is_compressed)
+static void bitarray_load_frozen(const char * key, uint8_t ** buffer, int64_t * bufsize, int64_t * uncompressed_size, uint8_t * is_compressed)
 {
     char * filename = g_strdup_printf("data/%s", key);
     int64_t file_size;
@@ -353,7 +353,7 @@ void bitbox_set_bit_nolookup(bitbox_t * box, const char * key, bitarray_t * b, i
     int64_t uncompressed_size;
 
     // freeze
-    int is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
+    uint8_t is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
     bitarray_free(b);
 
     // save

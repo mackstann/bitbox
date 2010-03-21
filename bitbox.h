@@ -8,7 +8,7 @@
 // bitarray
 
 typedef struct {
-    unsigned char * array;
+    uint8_t * array;
     int64_t size; // actual number of bytes allocated in array
 
     // an optimization to prevent a bunch of unused zeroes at the beginning of

@@ -182,7 +182,7 @@ static void bitarray_save_frozen(const char * key, uint8_t * buffer, int64_t buf
 
     char * filename = g_strdup_printf("data/%s", key);
 
-    g_file_set_contents(filename, contents, file_size, NULL); // XXX error handling
+    g_file_set_contents(filename, (char *)contents, file_size, NULL); // XXX error handling
 
     g_free(filename);
     free(contents);
@@ -195,7 +195,7 @@ static void bitarray_load_frozen(const char * key, uint8_t ** buffer, int64_t * 
     int64_t file_size;
     uint8_t * contents;
 
-    g_file_get_contents(filename, &contents, &file_size, NULL); // XXX error handling
+    g_file_get_contents(filename, (char **)&contents, (gsize *)&file_size, NULL); // XXX error handling
     g_free(filename);
 
     *is_compressed = contents[0];

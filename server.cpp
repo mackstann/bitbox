@@ -38,9 +38,11 @@ class BitboxHandler : virtual public BitboxIf {
         }
 
         void set_bits(const std::string& key, const std::set<int32_t> & bits) {
-            bitarray_t * b = bitbox_find_array(this->box, key.c_str());
             for(std::set<int32_t>::const_iterator it = bits.begin(); it != bits.end(); ++it)
+            {
+                bitarray_t * b = bitbox_find_array(this->box, key.c_str());
                 bitbox_set_bit_nolookup(this->box, key.c_str(), b, *it);
+            }
         }
 };
 
@@ -116,7 +118,7 @@ int main(int argc, char **argv) {
 
   // start the main loop
 
-  fprintf(stderr, "%d fds\n", fds.size());
+  fprintf(stderr, "%d fds\n", static_cast<int>(fds.size()));
   GMainLoop * loop = g_main_loop_new(NULL, FALSE);
   g_main_loop_run(loop);
   return 0;

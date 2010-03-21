@@ -4,6 +4,11 @@
 #include <sys/time.h>
 #include <assert.h>
 
+// stat
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include <glib.h>
 #include <lzf.h>
 
@@ -74,15 +79,41 @@ static void bitarray_free(bitarray_t * b)
     free(b);
 }
 
-static int bitarray_freeze(bitarray_t * b, unsigned char ** out_buffer, int * out_bufsize, int * uncompressed_size)
+static void bitarray_dump(bitarray_t * b)
 {
-    *uncompressed_size = sizeof(int)*2 + b->size;
+#ifdef NDEBUG
+    return;
+#endif
+    int i, j;
+    DEBUG("-- DUMP starting at offset %d --\n", b->offset);
+    DEBUG("-- size: %d array address: %x --\n", b->size, (long)b->array);
+    for(i = 0; i < b->size; i++)
+    {
+        if(b->array[i] == 0)
+            continue;
+        DEBUG("%08d ", i);
+        for(j = 0; j < 8; j++)
+            DEBUG((b->array[i] & MASK(j)) ? "1 " : "0 ");
+        DEBUG("\n");
+    }
+    DEBUG("\n");
+}
+
+static int bitarray_freeze(bitarray_t * b, unsigned char ** out_buffer, size_t * out_bufsize, size_t * uncompressed_size)
+{
+    DEBUG("bitarray_freeze\n");
+    bitarray_dump(b);
+    CHECK((b->size && b->array) || (!b->size && !b->array));
+    *uncompressed_size = sizeof(size_t) + sizeof(int) + b->size;
     unsigned char * buffer = malloc(*uncompressed_size);
-    ((int *)buffer)[0] = b->size;
-    ((int *)buffer)[1] = b->offset;
+    ((size_t *)buffer)[0] = b->size;
+    ((int *)(buffer + sizeof(size_t)))[0] = b->offset;
 
     if(b->array)
-        memcpy(buffer + sizeof(int)*2, b->array, b->size);
+    {
+        DEBUG("copying %d bytes, offset by %d bytes\n", b->size, sizeof(int)*2);
+        memcpy(buffer + sizeof(size_t) + sizeof(int), b->array, b->size);
+    }
 
     *out_buffer = malloc(*uncompressed_size);
     *out_bufsize = lzf_compress(buffer, *uncompressed_size, *out_buffer, *uncompressed_size);
@@ -96,30 +127,36 @@ static int bitarray_freeze(bitarray_t * b, unsigned char ** out_buffer, int * ou
 
     // compression resulted in larger data (fairly common for tiny values), so
     // return uncompressed data.
+    free(*out_buffer);
     *out_buffer = buffer;
     *out_bufsize = *uncompressed_size;
     return 0;
 }
 
-static bitarray_t * bitarray_thaw(unsigned char * buffer, int bufsize, int uncompressed_size, int is_compressed)
+static bitarray_t * bitarray_thaw(unsigned char * buffer, size_t bufsize, size_t uncompressed_size, int is_compressed)
 {
+    DEBUG("bitarray_thaw\n");
     if(is_compressed)
     {
         unsigned char * tmp_buffer = malloc(uncompressed_size);
-        lzf_decompress(buffer, bufsize, tmp_buffer, uncompressed_size);
+        CHECK(lzf_decompress(buffer, bufsize, tmp_buffer, uncompressed_size) == uncompressed_size);
         free(buffer);
         buffer = tmp_buffer;
     }
+    else
+        CHECK(uncompressed_size == bufsize);
 
     bitarray_t * b = bitarray_new(-1);
-    b->size = ((int *)buffer)[0];
-    b->offset = ((int *)buffer)[1];
+    b->size = ((size_t *)buffer)[0];
+    b->offset = ((int *)(buffer + sizeof(size_t)))[0];
+    b->array = NULL;
     if(b->size)
     {
         b->array = malloc(b->size);
-        memcpy(b->array, buffer + sizeof(int)*2, b->size);
+        memcpy(b->array, buffer + sizeof(size_t) + sizeof(int), b->size);
     }
     free(buffer);
+    bitarray_dump(b);
     return b;
 }
 
@@ -127,25 +164,48 @@ static bitarray_t * bitarray_thaw(unsigned char * buffer, int bufsize, int uncom
 // "key.RANDOM-GIBBERISH", which theoretically could be loaded accidentally if
 // someone requested that exact key at the right moment.  a more robust file
 // writing mechanism should eventually be used.
-static void bitarray_save_frozen(const char * key, const unsigned char * buffer, int bufsize, int uncompressed_size, int is_compressed)
+static void bitarray_save_frozen(const char * key, unsigned char * buffer, size_t bufsize, size_t uncompressed_size, int is_compressed)
 {
-    size_t file_size = sizeof(char) // is_compressed boolean
-                     + sizeof(int)  // uncompressed_size
+    DEBUG("uncompressed_size at save: %d\n", (int)uncompressed_size);
+
+    size_t file_size = sizeof(char)   // is_compressed boolean
+                     + sizeof(size_t) // uncompressed_size
                      + bufsize;
 
-    char * contents = malloc(file_size);
+    unsigned char * contents = malloc(file_size);
 
     memcpy(contents,                &is_compressed,     sizeof(char));
-    memcpy(contents + sizeof(char), &uncompressed_size, sizeof(int));
+    memcpy(contents + sizeof(char), &uncompressed_size, sizeof(size_t));
     memcpy(contents + sizeof(char)
-                    + sizeof(int),  buffer, bufsize);
+                    + sizeof(size_t), buffer, bufsize);
 
     char * filename = g_strdup_printf("data/%s", key);
 
-    g_file_set_contents(filename, contents, file_size, NULL);
+    g_file_set_contents(filename, contents, file_size, NULL); // XXX error handling
 
     g_free(filename);
     free(contents);
+    free(buffer);
+}
+
+static void bitarray_load_frozen(const char * key, unsigned char ** buffer, size_t * bufsize, size_t * uncompressed_size, int * is_compressed)
+{
+    char * filename = g_strdup_printf("data/%s", key);
+    size_t file_size;
+    unsigned char * contents;
+
+    g_file_get_contents(filename, &contents, &file_size, NULL); // XXX error handling
+    g_free(filename);
+
+    *is_compressed = contents[0];
+    *uncompressed_size = ((size_t *)(contents + sizeof(char)))[0];
+    *bufsize = file_size - (sizeof(char) + sizeof(size_t));
+
+    *buffer = malloc(*bufsize);
+    memcpy(*buffer, contents + sizeof(char) + sizeof(size_t), *bufsize);
+    g_free(contents);
+
+    DEBUG("uncompressed_size at load: %d\n", (int)*uncompressed_size);
 }
 
 static void bitarray_grow_up(bitarray_t * b, int size)
@@ -237,6 +297,7 @@ void bitarray_set_bit(bitarray_t * b, int index)
     }
     assert(BYTE_OFFSET(index) - b->offset <  b->size);
     BYTE_SLOT(b, index) |= MASK(index);
+    bitarray_dump(b);
     DEBUG("end of bitarray_set_bit\n");
 }
 
@@ -286,11 +347,25 @@ void bitbox_set_bit_nolookup(bitbox_t * box, const char * key, bitarray_t * b, i
     bitarray_set_bit(b, bit);
     box->size += b->size - old_size;
 
-    // unsigned char * buffer;
-    // int bufsize, uncompressed_size;
-    // int is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
-    // bitarray_save_frozen(key, buffer, bufsize, uncompressed_size, is_compressed);
-    // free(buffer);
+    unsigned char * buffer;
+    size_t bufsize;
+    size_t uncompressed_size;
+
+    // freeze
+    int is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
+    bitarray_free(b);
+
+    // save
+    bitarray_save_frozen(key, buffer, bufsize, uncompressed_size, is_compressed);
+
+    // load
+    bitarray_load_frozen(key, &buffer, &bufsize, &uncompressed_size, &is_compressed);
+
+    // unfreeze
+    b = bitarray_thaw(buffer, bufsize, uncompressed_size, is_compressed);
+
+    g_hash_table_remove(box->hash, key); // XXX the key gets leaked here -- should use g_hash_table_new_full
+    g_hash_table_insert(box->hash, strdup(key), b);
 }
 
 void bitbox_set_bit(bitbox_t * box, const char * key, int bit)

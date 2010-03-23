@@ -15,6 +15,14 @@
 
 #include "bitbox.h"
 
+// this is a rough but somewhat educated estimate.  in reality, with
+// GHashTable, the number ranges between around 25-50 bytes plus whatever the
+// size of the data pointed to by the key is.
+#define BYTES_CONSUMED_PER_HASH_KEY 50
+
+#define MIN_ARRAY_SIZE 1
+#define MEMORY_LIMIT 100
+
 #ifndef NDEBUG
 #   define DEBUG(...) do { \
         fprintf(stderr, __VA_ARGS__); \
@@ -34,10 +42,6 @@
 #define BIT_OFFSET(i) ((i) % 8)
 #define BYTE_SLOT(b, i) (b->array[BYTE_OFFSET(i) - b->offset])
 #define MASK(i) (1 << BIT_OFFSET(i))
-
-#define MIN_ARRAY_SIZE 1
-
-#define MEMORY_LIMIT 100
 
 static int _get_second(void)
 {
@@ -327,7 +331,6 @@ bitbox_t * bitbox_new(void)
     box->lru = g_tree_new(timestamp_compare);
 
     box->size = 0;
-    box->cleanup_needed = 0;
 
     return box;
 }
@@ -358,6 +361,7 @@ bitarray_t * bitbox_find_array(bitbox_t * box, const char * key)
         b = bitarray_new(-1);
         b->name = strdup(key);
         g_hash_table_insert(box->hash, b->name, b);
+        box->size += BYTES_CONSUMED_PER_HASH_KEY;
     }
     return b;
 }
@@ -396,7 +400,6 @@ void bitbox_set_bit(bitbox_t * box, const char * key, int64_t bit)
 {
     bitarray_t * b = bitbox_find_array(box, key);
     bitbox_set_bit_nolookup(box, key, b, bit);
-    box->cleanup_needed = box->size >= MEMORY_LIMIT;
 }
 
 int bitbox_get_bit(bitbox_t * box, const char * key, int64_t bit)
@@ -408,18 +411,21 @@ int bitbox_get_bit(bitbox_t * box, const char * key, int64_t bit)
     int retval = bitarray_get_bit(b, bit);
     g_tree_remove(box->lru, GINT_TO_POINTER(old_timestamp));
     g_tree_insert(box->lru, GINT_TO_POINTER(b->last_access), b);
+
     return retval;
 }
 
 void bitbox_cleanup_single_step(bitbox_t * box)
 {
-    DEBUG("using %" PRId64 " bytes in bitarrays\n", box->size);
-    if(box->size >= MEMORY_LIMIT)
+    DEBUG("using about %" PRId64 " bytes\n", box->size);
+    while(box->size >= MEMORY_LIMIT)
+    {
         DEBUG("CLEANUP!\n");
+    }
 }
 
 int bitbox_cleanup_needed(bitbox_t * box)
 {
-    return box->cleanup_needed;
+    return box->size >= MEMORY_LIMIT;
 }
 

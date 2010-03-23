@@ -32,7 +32,6 @@ typedef struct {
     GTree * lru;
 
     int64_t size; // sum of the sizes of all bitarrays it holds
-    int cleanup_needed;
 } bitbox_t;
 
 bitbox_t * bitbox_new(void);

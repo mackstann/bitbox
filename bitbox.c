@@ -91,13 +91,13 @@ static void bitarray_dump(bitarray_t * b)
     return;
 #endif
     int64_t i, j;
-    DEBUG("-- DUMP starting at offset %ld --\n", b->offset);
-    DEBUG("-- size: %ld array address: %lx --\n", b->size, (long)b->array);
+    DEBUG("-- DUMP starting at offset %" PRId64 " --\n", b->offset);
+    DEBUG("-- size: %" PRId64 " array address: %p --\n", b->size, b->array);
     for(i = 0; i < b->size; i++)
     {
         if(b->array[i] == 0)
             continue;
-        DEBUG("%08ld ", i);
+        DEBUG("%08" PRId64 " ", i);
         for(j = 0; j < 8; j++)
             DEBUG((b->array[i] & MASK(j)) ? "1 " : "0 ");
         DEBUG("\n");
@@ -117,7 +117,7 @@ static int bitarray_freeze(bitarray_t * b, uint8_t ** out_buffer, int64_t * out_
 
     if(b->array)
     {
-        DEBUG("copying %ld bytes, offset by %ld bytes\n", b->size, sizeof(int64_t)*2);
+        DEBUG("copying %" PRId64 " bytes, offset by %u bytes\n", b->size, sizeof(int64_t)*2);
         memcpy(buffer + sizeof(int64_t)*2, b->array, b->size);
     }
 
@@ -172,7 +172,7 @@ static bitarray_t * bitarray_thaw(uint8_t * buffer, int64_t bufsize, int64_t unc
 // writing mechanism should eventually be used.
 static void bitarray_save_frozen(const char * key, uint8_t * buffer, int64_t bufsize, int64_t uncompressed_size, uint8_t is_compressed)
 {
-    DEBUG("uncompressed_size at save: %ld\n", (int64_t)uncompressed_size);
+    DEBUG("uncompressed_size at save: %" PRId64 "\n", (int64_t)uncompressed_size);
 
     int64_t file_size = sizeof(uint8_t) // is_compressed boolean
                       + sizeof(int64_t) // uncompressed_size
@@ -211,12 +211,12 @@ static void bitarray_load_frozen(const char * key, uint8_t ** buffer, int64_t * 
     memcpy(*buffer, contents + sizeof(uint8_t) + sizeof(int64_t), *bufsize);
     g_free(contents);
 
-    DEBUG("uncompressed_size at load: %ld\n", (int64_t)*uncompressed_size);
+    DEBUG("uncompressed_size at load: %" PRId64 "\n", (int64_t)*uncompressed_size);
 }
 
 static void bitarray_grow_up(bitarray_t * b, int64_t size)
 {
-    DEBUG("bitarray_grow_up(new_size %ld)\n", size);
+    DEBUG("bitarray_grow_up(new_size %" PRId64 ")\n", size);
     uint8_t * new_array = (uint8_t *)calloc(size, 1);
     memcpy(new_array, b->array, b->size);
     free(b->array);
@@ -226,7 +226,7 @@ static void bitarray_grow_up(bitarray_t * b, int64_t size)
 
 static void bitarray_grow_down(bitarray_t * b, int64_t new_size)
 {
-    DEBUG("bitarray_grow_down(new_size %ld) (formerly size %ld)\n", new_size, b->size);
+    DEBUG("bitarray_grow_down(new_size %" PRId64 ") (formerly size %" PRId64 ")\n", new_size, b->size);
 
     // move the starting point back
     int64_t grow_by = new_size - b->size;
@@ -247,7 +247,7 @@ static void bitarray_grow_down(bitarray_t * b, int64_t new_size)
     b->array = new_array;
     b->size = new_size;
     b->offset = new_begin;
-    DEBUG("after grow down -- new_size: %ld new_begin: %ld\n", new_size, new_begin);
+    DEBUG("after grow down -- new_size: %" PRId64 " new_begin: %" PRId64 "\n", new_size, new_begin);
 }
 
 static void bitarray_adjust_size_to_reach(bitarray_t * b, int64_t new_index)
@@ -270,7 +270,7 @@ static void bitarray_adjust_size_to_reach(bitarray_t * b, int64_t new_index)
 
 int bitarray_get_bit(bitarray_t * b, int64_t index)
 {
-    DEBUG("bitarray_get_bit(index %ld)\n", index);
+    DEBUG("bitarray_get_bit(index %" PRId64 ")\n", index);
     b->last_access = _get_second();
 
     if(!b->array || b->offset + b->size < index/8+1 || index/8 < b->offset)
@@ -285,7 +285,7 @@ int bitarray_get_bit(bitarray_t * b, int64_t index)
 
 void bitarray_set_bit(bitarray_t * b, int64_t index)
 {
-    DEBUG("bitarray_set_bit(index %ld)\n", index);
+    DEBUG("bitarray_set_bit(index %" PRId64 ")\n", index);
     b->last_access = _get_second();
 
     if(!b->array)
@@ -297,8 +297,8 @@ void bitarray_set_bit(bitarray_t * b, int64_t index)
     assert(b->offset >= 0);
     if(BYTE_OFFSET(index) - b->offset < 0)
     {
-        DEBUG("index: %ld\n", index);
-        DEBUG("b->offset: %ld\n", b->offset);
+        DEBUG("index: %" PRId64 "\n", index);
+        DEBUG("b->offset: %" PRId64 "\n", b->offset);
         abort();
     }
     assert(BYTE_OFFSET(index) - b->offset <  b->size);
@@ -413,7 +413,7 @@ int bitbox_get_bit(bitbox_t * box, const char * key, int64_t bit)
 
 void bitbox_cleanup_single_step(bitbox_t * box)
 {
-    DEBUG("using %ld bytes in bitarrays\n", box->size);
+    DEBUG("using %" PRId64 " bytes in bitarrays\n", box->size);
     if(box->size >= MEMORY_LIMIT)
         DEBUG("CLEANUP!\n");
 }

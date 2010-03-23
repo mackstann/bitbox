@@ -1,10 +1,10 @@
 all: build thrift
 
-gen-cpp: bitbox.thrift *.cpp
+gen-cpp: bitbox.thrift *.cpp Makefile
 	thrift --gen cpp bitbox.thrift
-gen-py: bitbox.thrift *.cpp
+gen-py: bitbox.thrift *.cpp Makefile
 	thrift --gen py bitbox.thrift
-gen-php: bitbox.thrift *.cpp
+gen-php: bitbox.thrift *.cpp Makefile
 	thrift --gen php bitbox.thrift
 
 COMPILE_FLAGS=-ggdb -Wall `pkg-config --cflags glib-2.0` \
@@ -12,7 +12,7 @@ COMPILE_FLAGS=-ggdb -Wall `pkg-config --cflags glib-2.0` \
 
 LINK_FLAGS=`pkg-config --libs glib-2.0` -lthrift
 
-bitbox-server: gen-cpp bitbox.c bitbox.h server.cpp
+bitbox-server: gen-cpp bitbox.c bitbox.h server.cpp Makefile
 	gcc $(COMPILE_FLAGS) -c bitbox.c -o bitbox.o
 	gcc $(COMPILE_FLAGS) -c server.cpp -o server.o
 	gcc $(COMPILE_FLAGS) -c gen-cpp/bitbox_constants.cpp -o bitbox_constants.o

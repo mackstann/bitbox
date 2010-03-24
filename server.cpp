@@ -11,9 +11,7 @@
 #include <stdio.h>
 #include <inttypes.h>
 
-extern "C" {
 #include "bitbox.h"
-}
 
 using namespace ::apache::thrift;
 using namespace ::apache::thrift::protocol;
@@ -21,6 +19,16 @@ using namespace ::apache::thrift::transport;
 using namespace ::apache::thrift::server;
 
 using boost::shared_ptr;
+
+static gboolean cleanup_scheduled = FALSE;
+
+gboolean idle_cleanup(gpointer data)
+{
+    bitbox_t * box = (bitbox_t *)data;
+    bitbox_cleanup_single_step(box, BITBOX_MEMORY_LIMIT);
+    cleanup_scheduled = FALSE;
+    return FALSE;
+}
 
 class BitboxHandler : virtual public BitboxIf {
     public:
@@ -38,6 +46,11 @@ class BitboxHandler : virtual public BitboxIf {
         void set_bit(const std::string& key, const int64_t bit)
         {
             bitbox_set_bit(this->box, key.c_str(), bit);
+            if(!cleanup_scheduled)
+            {
+                g_idle_add(idle_cleanup, this->box);
+                cleanup_scheduled = TRUE;
+            }
         }
 
         void set_bits(const std::string& key, const std::set<int64_t> & bits)
@@ -45,15 +58,13 @@ class BitboxHandler : virtual public BitboxIf {
             bitarray_t * b = bitbox_find_array(this->box, key.c_str());
             for(std::set<int64_t>::const_iterator it = bits.begin(); it != bits.end(); ++it)
                 bitbox_set_bit_nolookup(this->box, key.c_str(), b, *it);
+            if(!cleanup_scheduled)
+            {
+                g_idle_add(idle_cleanup, this->box);
+                cleanup_scheduled = TRUE;
+            }
         }
 };
-
-gboolean idle_cleanup(gpointer data)
-{
-    bitbox_t * box = (bitbox_t *)data;
-    bitbox_cleanup_single_step(box);
-    return TRUE;
-}
 
 gboolean server_prepare_callback(GSource * source, gint * timeout_) {
     *timeout_ = -1;
@@ -115,7 +126,6 @@ int main(int argc, char **argv) {
   }
 
   // add the idle function to the main loop
-
   g_idle_add(idle_cleanup, handler->box);
 
   // start the main loop

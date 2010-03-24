@@ -2,8 +2,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/time.h>
-#include <inttypes.h>
 #include <assert.h>
+
+// we must explicitly request the PRId64 etc. macros in C++.
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 
 // stat
 #include <sys/types.h>
@@ -11,17 +14,18 @@
 #include <unistd.h>
 
 #include <glib.h>
+
+extern "C" {
 #include <lzf.h>
+}
 
 #include "bitbox.h"
 
-// this is a rough but somewhat educated estimate.  in reality, with
-// GHashTable, the number ranges between around 25-50 bytes plus whatever the
-// size of the data pointed to by the key is.
-#define BYTES_CONSUMED_PER_HASH_KEY 50
+// ugh this is totally not working.  new plan: use a c++ hash with a custom
+// allocator that counts memory usage.
+#define BYTES_CONSUMED_PER_HASH_KEY 100
 
 #define MIN_ARRAY_SIZE 1
-#define MEMORY_LIMIT 100
 
 #ifndef NDEBUG
 #   define DEBUG(...) do { \
@@ -31,6 +35,7 @@
 #   define DEBUG(...)
 #endif
 
+// XXX get rid of this
 #define CHECK(expr) do { \
     if(!(expr)) { \
         fputs("CHECK (" #expr ") failed", stderr); \
@@ -91,7 +96,7 @@ static void bitarray_free(bitarray_t * b)
 
 static void bitarray_dump(bitarray_t * b)
 {
-#ifdef NDEBUG
+#if 1
     return;
 #endif
     int64_t i, j;
@@ -115,7 +120,7 @@ static int bitarray_freeze(bitarray_t * b, uint8_t ** out_buffer, int64_t * out_
     bitarray_dump(b);
     CHECK((b->size && b->array) || (!b->size && !b->array));
     *uncompressed_size = sizeof(int64_t)*2 + b->size;
-    uint8_t * buffer = malloc(*uncompressed_size);
+    uint8_t * buffer = (uint8_t *)malloc(*uncompressed_size);
     ((int64_t *)buffer)[0] = b->size;
     ((int64_t *)buffer)[1] = b->offset;
 
@@ -125,7 +130,7 @@ static int bitarray_freeze(bitarray_t * b, uint8_t ** out_buffer, int64_t * out_
         memcpy(buffer + sizeof(int64_t)*2, b->array, b->size);
     }
 
-    *out_buffer = malloc(*uncompressed_size);
+    *out_buffer = (uint8_t *)malloc(*uncompressed_size);
     *out_bufsize = lzf_compress(buffer, *uncompressed_size, *out_buffer, *uncompressed_size);
 
     // compression succeeded
@@ -148,7 +153,7 @@ static bitarray_t * bitarray_thaw(uint8_t * buffer, int64_t bufsize, int64_t unc
     DEBUG("bitarray_thaw\n");
     if(is_compressed)
     {
-        uint8_t * tmp_buffer = malloc(uncompressed_size);
+        uint8_t * tmp_buffer = (uint8_t *)malloc(uncompressed_size);
         CHECK(lzf_decompress(buffer, bufsize, tmp_buffer, uncompressed_size) == uncompressed_size);
         free(buffer);
         buffer = tmp_buffer;
@@ -162,7 +167,7 @@ static bitarray_t * bitarray_thaw(uint8_t * buffer, int64_t bufsize, int64_t unc
     b->array = NULL;
     if(b->size)
     {
-        b->array = malloc(b->size);
+        b->array = (uint8_t *)malloc(b->size);
         memcpy(b->array, buffer + sizeof(int64_t)*2, b->size);
     }
     free(buffer);
@@ -182,7 +187,7 @@ static void bitarray_save_frozen(const char * key, uint8_t * buffer, int64_t buf
                       + sizeof(int64_t) // uncompressed_size
                       + bufsize;
 
-    uint8_t * contents = malloc(file_size);
+    uint8_t * contents = (uint8_t *)malloc(file_size);
 
     memcpy(contents,                   &is_compressed,     sizeof(uint8_t));
     memcpy(contents + sizeof(uint8_t), &uncompressed_size, sizeof(int64_t));
@@ -211,7 +216,7 @@ static void bitarray_load_frozen(const char * key, uint8_t ** buffer, int64_t * 
     *uncompressed_size = ((int64_t *)(contents + sizeof(uint8_t)))[0];
     *bufsize = file_size - (sizeof(char) + sizeof(int64_t));
 
-    *buffer = malloc(*bufsize);
+    *buffer = (uint8_t *)malloc(*bufsize);
     memcpy(*buffer, contents + sizeof(uint8_t) + sizeof(int64_t), *bufsize);
     g_free(contents);
 
@@ -220,7 +225,7 @@ static void bitarray_load_frozen(const char * key, uint8_t ** buffer, int64_t * 
 
 static void bitarray_grow_up(bitarray_t * b, int64_t size)
 {
-    DEBUG("bitarray_grow_up(new_size %" PRId64 ")\n", size);
+    //DEBUG("bitarray_grow_up(new_size %" PRId64 ")\n", size);
     uint8_t * new_array = (uint8_t *)calloc(size, 1);
     memcpy(new_array, b->array, b->size);
     free(b->array);
@@ -230,7 +235,7 @@ static void bitarray_grow_up(bitarray_t * b, int64_t size)
 
 static void bitarray_grow_down(bitarray_t * b, int64_t new_size)
 {
-    DEBUG("bitarray_grow_down(new_size %" PRId64 ") (formerly size %" PRId64 ")\n", new_size, b->size);
+    //DEBUG("bitarray_grow_down(new_size %" PRId64 ") (formerly size %" PRId64 ")\n", new_size, b->size);
 
     // move the starting point back
     int64_t grow_by = new_size - b->size;
@@ -251,7 +256,7 @@ static void bitarray_grow_down(bitarray_t * b, int64_t new_size)
     b->array = new_array;
     b->size = new_size;
     b->offset = new_begin;
-    DEBUG("after grow down -- new_size: %" PRId64 " new_begin: %" PRId64 "\n", new_size, new_begin);
+    //DEBUG("after grow down -- new_size: %" PRId64 " new_begin: %" PRId64 "\n", new_size, new_begin);
 }
 
 static void bitarray_adjust_size_to_reach(bitarray_t * b, int64_t new_index)
@@ -274,22 +279,22 @@ static void bitarray_adjust_size_to_reach(bitarray_t * b, int64_t new_index)
 
 int bitarray_get_bit(bitarray_t * b, int64_t index)
 {
-    DEBUG("bitarray_get_bit(index %" PRId64 ")\n", index);
+    //DEBUG("bitarray_get_bit(index %" PRId64 ")\n", index);
     b->last_access = _get_second();
 
     if(!b->array || b->offset + b->size < index/8+1 || index/8 < b->offset)
     {
-        DEBUG("end of bitarray_get_bit\n");
+        //DEBUG("end of bitarray_get_bit\n");
         return 0;
     }
 
-    DEBUG("end of bitarray_get_bit\n");
+    //DEBUG("end of bitarray_get_bit\n");
     return BYTE_SLOT(b, index) & MASK(index) ? 1 : 0;
 }
 
 void bitarray_set_bit(bitarray_t * b, int64_t index)
 {
-    DEBUG("bitarray_set_bit(index %" PRId64 ")\n", index);
+    //DEBUG("bitarray_set_bit(index %" PRId64 ")\n", index);
     b->last_access = _get_second();
 
     if(!b->array)
@@ -301,14 +306,14 @@ void bitarray_set_bit(bitarray_t * b, int64_t index)
     assert(b->offset >= 0);
     if(BYTE_OFFSET(index) - b->offset < 0)
     {
-        DEBUG("index: %" PRId64 "\n", index);
-        DEBUG("b->offset: %" PRId64 "\n", b->offset);
+        //DEBUG("index: %" PRId64 "\n", index);
+        //DEBUG("b->offset: %" PRId64 "\n", b->offset);
         abort();
     }
     assert(BYTE_OFFSET(index) - b->offset <  b->size);
     BYTE_SLOT(b, index) |= MASK(index);
     bitarray_dump(b);
-    DEBUG("end of bitarray_set_bit\n");
+    //DEBUG("end of bitarray_set_bit\n");
 }
 
 // public bitbox api
@@ -328,8 +333,6 @@ bitbox_t * bitbox_new(void)
     box->hash = g_hash_table_new(g_str_hash, g_str_equal);
     CHECK(box->hash);
 
-    box->lru = g_tree_new(timestamp_compare);
-
     box->size = 0;
 
     return box;
@@ -346,8 +349,6 @@ void bitbox_free(bitbox_t * box)
         free((char *)key);
         bitarray_free((bitarray_t *)value);
     }
-
-    g_tree_destroy(box->lru);
 
     g_hash_table_destroy(box->hash);
     free(box);
@@ -366,14 +367,56 @@ bitarray_t * bitbox_find_array(bitbox_t * box, const char * key)
     return b;
 }
 
+static void bitbox_update_key_in_lru(bitbox_t * box, char * key, int old_timestamp, int new_timestamp)
+{
+    //DEBUG("------------- UPDATE BEGIN ------------\n");
+    if(old_timestamp)
+    {
+        // multiple keys may have the same last-modified time.  so scan through any
+        // siblings and find the one we're looking for.
+        bitbox_lru_map_t::iterator it = box->lru.find(old_timestamp);
+        bitbox_lru_map_t::iterator upper_bound = box->lru.upper_bound(old_timestamp);
+
+        for(; it != upper_bound; it++)
+        {
+            if(!strcmp(it->second, key)) // found it
+            {
+                // delete it
+                //DEBUG("<<<<<<<<<<<<DELETE %d %s (%s and %s are the same) FROM LRU>>>>>>>>>>>>>\n", old_timestamp, key, it->second, key);
+                box->lru.erase(it);
+                break;
+            }
+        }
+    }
+
+    CHECK(new_timestamp);
+    // and add the key with its new timestamp
+    //DEBUG("<<<<<<<<<<<<INSERT %d %s INTO LRU>>>>>>>>>>>>>\n", new_timestamp, key);
+    box->lru.insert(bitbox_lru_map_t::value_type(new_timestamp, key));
+
+    // TODO: duplicates will be reduced greatly by using time precision
+    // greater than 1 second.
+    //DEBUG("------------- UPDATE END ------------\n");
+}
+
+void bitbox_cleanup_if_angry(bitbox_t * box)
+{
+    DEBUG("size is %" PRId64 " and angry limit is %d\n", box->size, BITBOX_MEMORY_ANGRY_LIMIT);
+    if(box->size >= BITBOX_MEMORY_ANGRY_LIMIT && box->lru.size())
+        bitbox_cleanup_single_step(box, BITBOX_MEMORY_ANGRY_LIMIT);
+}
+
 void bitbox_set_bit_nolookup(bitbox_t * box, const char * key, bitarray_t * b, int64_t bit)
 {
     int old_timestamp = b->last_access;
     int64_t old_size = b->size;
+
     bitarray_set_bit(b, bit);
+
     box->size += b->size - old_size;
-    g_tree_remove(box->lru, GINT_TO_POINTER(old_timestamp));
-    g_tree_insert(box->lru, GINT_TO_POINTER(b->last_access), b);
+    bitbox_update_key_in_lru(box, strdup(key), old_timestamp, b->last_access);
+
+    bitbox_cleanup_if_angry(box);
 
     // uint8_t * buffer;
     // int64_t bufsize;
@@ -409,23 +452,48 @@ int bitbox_get_bit(bitbox_t * box, const char * key, int64_t bit)
         return 0;
     int old_timestamp = b->last_access;
     int retval = bitarray_get_bit(b, bit);
-    g_tree_remove(box->lru, GINT_TO_POINTER(old_timestamp));
-    g_tree_insert(box->lru, GINT_TO_POINTER(b->last_access), b);
+
+    bitbox_update_key_in_lru(box, strdup(key), old_timestamp, b->last_access);
 
     return retval;
 }
 
-void bitbox_cleanup_single_step(bitbox_t * box)
+void bitbox_cleanup_single_step(bitbox_t * box, int64_t memory_limit)
 {
-    DEBUG("using about %" PRId64 " bytes\n", box->size);
-    while(box->size >= MEMORY_LIMIT)
+    DEBUG("************ box too big? %d\n", box->size >= memory_limit);
+    DEBUG("************ lru size? %d\n", box->lru.size());
+    DEBUG("************ hash size? %d\n", g_hash_table_size(box->hash));
+    while(box->size >= memory_limit && box->lru.size())
     {
-        DEBUG("CLEANUP!\n");
+        bitbox_lru_map_t::iterator it = box->lru.begin();
+
+        DEBUG("CLEANUP! using about %" PRId64 " bytes\n", box->size);
+
+        char * key = it->second;
+        box->lru.erase(it);
+
+        bitarray_t * b = (bitarray_t *)g_hash_table_lookup(box->hash, key);
+        CHECK(b);
+
+        uint8_t * buffer;
+        int64_t bufsize;
+        int64_t uncompressed_size;
+        uint8_t is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
+        bitarray_save_frozen(key, buffer, bufsize, uncompressed_size, is_compressed);
+
+        box->size -= BYTES_CONSUMED_PER_HASH_KEY;
+        box->size -= b->size;
+
+        g_hash_table_remove(box->hash, key);
+        bitarray_free(b);
+        free(key);
+        // and what about the key we allocated for the hash table?
+        DEBUG("################## removed something! now using about %" PRId64 " bytes\n", box->size);
     }
 }
 
 int bitbox_cleanup_needed(bitbox_t * box)
 {
-    return box->size >= MEMORY_LIMIT;
+    return box->size >= BITBOX_MEMORY_LIMIT && box->lru.size();
 }
 

@@ -335,6 +335,8 @@ bitbox_t * bitbox_new(void)
 
     box->size = 0;
 
+    box->lru = bitbox_lru_map_t();
+
     return box;
 }
 
@@ -383,6 +385,7 @@ static void bitbox_update_key_in_lru(bitbox_t * box, char * key, int old_timesta
             {
                 // delete it
                 //DEBUG("<<<<<<<<<<<<DELETE %d %s (%s and %s are the same) FROM LRU>>>>>>>>>>>>>\n", old_timestamp, key, it->second, key);
+                free(it->second);
                 box->lru.erase(it);
                 break;
             }

@@ -404,8 +404,11 @@ static void bitbox_update_key_in_lru(bitbox_t * box, char * key, int old_timesta
 
 void bitbox_cleanup_if_angry(bitbox_t * box)
 {
+    // ok, that's it.  even if really busy, bring memory usage down below the
+    // "angry" limit before proceeding.  we'll never be very far past the
+    // limit, so the while loop isn't as scary as it might look.
     DEBUG("size is %" PRId64 " and angry limit is %d\n", box->size, BITBOX_MEMORY_ANGRY_LIMIT);
-    if(box->size >= BITBOX_MEMORY_ANGRY_LIMIT && box->lru.size())
+    while(box->size >= BITBOX_MEMORY_ANGRY_LIMIT && box->lru.size())
         bitbox_cleanup_single_step(box, BITBOX_MEMORY_ANGRY_LIMIT);
 }
 
@@ -466,7 +469,7 @@ void bitbox_cleanup_single_step(bitbox_t * box, int64_t memory_limit)
     DEBUG("************ box too big? %d\n", box->size >= memory_limit);
     DEBUG("************ lru size? %d\n", box->lru.size());
     DEBUG("************ hash size? %d\n", g_hash_table_size(box->hash));
-    while(box->size >= memory_limit && box->lru.size())
+    if(box->size >= memory_limit && box->lru.size())
     {
         bitbox_lru_map_t::iterator it = box->lru.begin();
 

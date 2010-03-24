@@ -21,10 +21,6 @@ extern "C" {
 
 #include "bitbox.h"
 
-// ugh this is totally not working.  new plan: use a c++ hash with a custom
-// allocator that counts memory usage.
-#define BYTES_CONSUMED_PER_HASH_KEY 100
-
 #define MIN_ARRAY_SIZE 1
 
 #ifndef NDEBUG
@@ -34,14 +30,6 @@ extern "C" {
 #else
 #   define DEBUG(...)
 #endif
-
-// XXX get rid of this
-#define CHECK(expr) do { \
-    if(!(expr)) { \
-        fputs("CHECK (" #expr ") failed", stderr); \
-        abort(); \
-    } \
-} while(0)
 
 #define BYTE_OFFSET(i) ((i) / 8)
 #define BIT_OFFSET(i) ((i) % 8)
@@ -62,13 +50,13 @@ static void bitarray_init_data(bitarray_t * b, int64_t start_bit)
     b->offset = start_bit/8;
     b->size = MIN_ARRAY_SIZE;
     b->array = (uint8_t *)calloc(b->size, 1);
-    CHECK(b->array);
+    assert(b->array);
 }
 
 static bitarray_t * bitarray_new(const char * key, int64_t start_bit)
 {
     bitarray_t * b = (bitarray_t *)malloc(sizeof(bitarray_t));
-    CHECK(b);
+    assert(b);
 
     b->last_access = _get_time();
     b->offset = 0;
@@ -92,11 +80,9 @@ static void bitarray_free(bitarray_t * b)
     free(b);
 }
 
+#if 0
 static void bitarray_dump(bitarray_t * b)
 {
-#if 1
-    return;
-#endif
     int64_t i, j;
     DEBUG("-- DUMP starting at offset %" PRId64 " --\n", b->offset);
     DEBUG("-- size: %" PRId64 " array address: %p --\n", b->size, b->array);
@@ -111,11 +97,11 @@ static void bitarray_dump(bitarray_t * b)
     }
     DEBUG("\n");
 }
+#endif
 
 static int bitarray_freeze(bitarray_t * b, uint8_t ** out_buffer, int64_t * out_bufsize, int64_t * uncompressed_size)
 {
-    bitarray_dump(b);
-    CHECK((b->size && b->array) || (!b->size && !b->array));
+    assert((b->size && b->array) || (!b->size && !b->array));
     *uncompressed_size = sizeof(int64_t)*2 + b->size;
     uint8_t * buffer = (uint8_t *)malloc(*uncompressed_size);
     ((int64_t *)buffer)[0] = b->size;
@@ -147,12 +133,12 @@ static bitarray_t * bitarray_thaw(const char * key, uint8_t * buffer, int64_t bu
     if(is_compressed)
     {
         uint8_t * tmp_buffer = (uint8_t *)malloc(uncompressed_size);
-        CHECK(lzf_decompress(buffer, bufsize, tmp_buffer, uncompressed_size) == uncompressed_size);
+        assert(lzf_decompress(buffer, bufsize, tmp_buffer, uncompressed_size) == uncompressed_size);
         free(buffer);
         buffer = tmp_buffer;
     }
     else
-        CHECK(uncompressed_size == bufsize);
+        assert(uncompressed_size == bufsize);
 
     bitarray_t * b = bitarray_new(key, -1);
     b->size   = ((int64_t *)buffer)[0];
@@ -164,7 +150,6 @@ static bitarray_t * bitarray_thaw(const char * key, uint8_t * buffer, int64_t bu
         memcpy(b->array, buffer + sizeof(int64_t)*2, b->size);
     }
     free(buffer);
-    bitarray_dump(b);
     return b;
 }
 
@@ -297,7 +282,6 @@ void bitarray_set_bit(bitarray_t * b, int64_t index)
     }
     assert(BYTE_OFFSET(index) - b->offset <  b->size);
     BYTE_SLOT(b, index) |= MASK(index);
-    bitarray_dump(b);
 }
 
 // public bitbox api
@@ -312,10 +296,10 @@ gint timestamp_compare(gconstpointer ap, gconstpointer bp)
 bitbox_t * bitbox_new(void)
 {
     bitbox_t * box = (bitbox_t *)malloc(sizeof(bitbox_t));
-    CHECK(box);
+    assert(box);
 
     box->hash = g_hash_table_new(g_str_hash, g_str_equal);
-    CHECK(box->hash);
+    assert(box->hash);
 
     box->memory_size = 0;
 
@@ -342,7 +326,7 @@ void bitbox_free(bitbox_t * box)
 
 static void bitbox_update_key_in_lru(bitbox_t * box, const char * key, int64_t old_timestamp, int64_t new_timestamp)
 {
-    CHECK(new_timestamp);
+    assert(new_timestamp);
     if(old_timestamp)
     {
         // multiple keys may have the same last-modified time.  so scan through
@@ -443,7 +427,7 @@ void bitbox_cleanup_if_angry(bitbox_t * box)
 
 static void bitbox_set_bit_nolookup(bitbox_t * box, bitarray_t * b, int64_t bit)
 {
-    CHECK(b);
+    assert(b);
     int64_t old_timestamp = b->last_access;
 
     bitarray_set_bit(b, bit);
@@ -488,7 +472,7 @@ void bitbox_cleanup_single_step(bitbox_t * box, int64_t memory_limit)
     DEBUG("************ box too big? %d\n", box->memory_size >= memory_limit);
     DEBUG("************ lru size? %d\n", box->lru.size());
     DEBUG("************ hash size? %d\n", g_hash_table_size(box->hash));
-    CHECK(g_hash_table_size(box->hash) == box->lru.size());
+    assert(g_hash_table_size(box->hash) == box->lru.size());
     if(box->memory_size >= memory_limit && box->lru.size())
     {
         bitbox_lru_map_t::iterator it = box->lru.begin();
@@ -499,7 +483,7 @@ void bitbox_cleanup_single_step(bitbox_t * box, int64_t memory_limit)
         box->lru.erase(it);
 
         bitarray_t * b = bitbox_find_array_in_memory(box, key);
-        CHECK(b);
+        assert(b);
 
         uint8_t * buffer;
         int64_t bufsize;

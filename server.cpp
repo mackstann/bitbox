@@ -7,6 +7,8 @@
 #include <transport/TBufferTransports.h>
 
 #include <vector>
+#include <iterator>
+#include <algorithm>
 #include <sys/poll.h>
 #include <stdio.h>
 #include <inttypes.h>
@@ -20,14 +22,14 @@ using namespace ::apache::thrift::server;
 
 using boost::shared_ptr;
 
-static gboolean cleanup_scheduled = FALSE;
+static int cleanup_scheduled = 0;
 
 gboolean idle_cleanup(gpointer data)
 {
     bitbox_t * box = (bitbox_t *)data;
     bitbox_cleanup_single_step(box, BITBOX_MEMORY_LIMIT);
-    cleanup_scheduled = FALSE;
-    return bitbox_cleanup_needed(box) ? TRUE : FALSE;
+    int cleanup_scheduled = bitbox_cleanup_needed(box);
+    return cleanup_scheduled ? TRUE : FALSE;
 }
 
 class BitboxHandler : virtual public BitboxIf {
@@ -49,19 +51,25 @@ class BitboxHandler : virtual public BitboxIf {
             if(!cleanup_scheduled)
             {
                 g_idle_add(idle_cleanup, this->box);
-                cleanup_scheduled = TRUE;
+                cleanup_scheduled = 1;
             }
         }
 
         void set_bits(const std::string& key, const std::set<int64_t> & bits)
         {
-            bitarray_t * b = bitbox_find_or_create_array(this->box, key.c_str());
-            for(std::set<int64_t>::const_iterator it = bits.begin(); it != bits.end(); ++it)
-                bitbox_set_bit_nolookup(this->box,  b, *it);
+            // convert to a plain c array
+            std::vector<int64_t> vbits;
+            int64_t * abits = (int64_t *)malloc(bits.size() * sizeof(int64_t));
+            std::copy(bits.begin(), bits.end(), abits);
+
+            bitbox_set_bits(this->box, key.c_str(), abits, bits.size());
+
+            free(abits);
+
             if(!cleanup_scheduled)
             {
                 g_idle_add(idle_cleanup, this->box);
-                cleanup_scheduled = TRUE;
+                cleanup_scheduled = 1;
             }
         }
 };

@@ -9,8 +9,8 @@
 #include <glib.h>
 #include <map>
 
-#define BITBOX_MEMORY_LIMIT        500000
-#define BITBOX_MEMORY_ANGRY_LIMIT 1000000
+#define BITBOX_MEMORY_LIMIT       15000000
+#define BITBOX_MEMORY_ANGRY_LIMIT 20000000
 
 // bitarray
 
@@ -40,17 +40,21 @@ typedef struct {
     // timestamp and the value corresponds to a key in the hash.
     bitbox_lru_map_t lru;
 
-    int64_t size; // sum of the sizes of all bitarrays it holds
+    int64_t memory_size; // sum of the sizes of all bitarrays it holds
+    char * proc_stat_filename;
 } bitbox_t;
 
 bitbox_t * bitbox_new(void);
-void bitbox_free(bitbox_t * box);
-void bitbox_set_bit(bitbox_t * box, const char * key, int64_t bit);
-void bitbox_set_bit_nolookup(bitbox_t * box, bitarray_t * b, int64_t bit);
-int bitbox_get_bit(bitbox_t * box, const char * key, int64_t bit);
+void       bitbox_free(bitbox_t * box);
+
+int  bitbox_get_bit (bitbox_t * box, const char * key, int64_t bit);
+void bitbox_set_bit (bitbox_t * box, const char * key, int64_t bit);
+void bitbox_set_bits(bitbox_t * box, const char * key, int64_t * bits, int64_t nbits);
+
 void bitbox_cleanup_single_step(bitbox_t * box, int64_t memory_limit);
-int bitbox_cleanup_needed(bitbox_t * box);
-bitarray_t * bitbox_find_array(bitbox_t * box, const char * key);
+int  bitbox_cleanup_needed     (bitbox_t * box);
+
+bitarray_t * bitbox_find_array          (bitbox_t * box, const char * key);
 bitarray_t * bitbox_find_or_create_array(bitbox_t * box, const char * key);
 
 #endif

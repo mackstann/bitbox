@@ -48,11 +48,11 @@ extern "C" {
 #define BYTE_SLOT(b, i) (b->array[BYTE_OFFSET(i) - b->offset])
 #define MASK(i) (1 << BIT_OFFSET(i))
 
-static int _get_second(void)
+static int64_t _get_time(void)
 {
     struct timeval tv;
     gettimeofday(&tv, NULL);
-    return (int)tv.tv_sec;
+    return ((int64_t)tv.tv_sec * 1000000) + tv.tv_usec;
 }
 
 // private bitarray functions
@@ -71,7 +71,7 @@ static bitarray_t * bitarray_new(const char * key, int64_t start_bit)
     bitarray_t * b = (bitarray_t *)malloc(sizeof(bitarray_t));
     CHECK(b);
 
-    b->last_access = _get_second();
+    b->last_access = _get_time();
     b->offset = 0;
     b->size = 0;
     b->array = NULL;
@@ -289,7 +289,7 @@ static void bitarray_adjust_size_to_reach(bitarray_t * b, int64_t new_index)
 int bitarray_get_bit(bitarray_t * b, int64_t index)
 {
     //DEBUG("bitarray_get_bit(index %" PRId64 ")\n", index);
-    b->last_access = _get_second();
+    b->last_access = _get_time();
 
     if(!b->array || b->offset + b->size < index/8+1 || index/8 < b->offset)
     {
@@ -304,7 +304,7 @@ int bitarray_get_bit(bitarray_t * b, int64_t index)
 void bitarray_set_bit(bitarray_t * b, int64_t index)
 {
     //DEBUG("bitarray_set_bit(index %" PRId64 ")\n", index);
-    b->last_access = _get_second();
+    b->last_access = _get_time();
 
     if(!b->array)
         bitarray_init_data(b, index);
@@ -412,7 +412,7 @@ bitarray_t * bitbox_find_or_create_array(bitbox_t * box, const char * key)
     return b;
 }
 
-static void bitbox_update_key_in_lru(bitbox_t * box, const char * key, int old_timestamp, int new_timestamp)
+static void bitbox_update_key_in_lru(bitbox_t * box, const char * key, int64_t old_timestamp, int64_t new_timestamp)
 {
     //DEBUG("------------- UPDATE BEGIN ------------\n");
     if(old_timestamp)
@@ -458,7 +458,7 @@ void bitbox_cleanup_if_angry(bitbox_t * box)
 
 void bitbox_set_bit_nolookup(bitbox_t * box, bitarray_t * b, int64_t bit)
 {
-    int old_timestamp = b->last_access;
+    int64_t old_timestamp = b->last_access;
     int64_t old_size = b->size;
 
     bitarray_set_bit(b, bit);
@@ -482,7 +482,7 @@ int bitbox_get_bit(bitbox_t * box, const char * key, int64_t bit)
     if(!b)
         return 0;
 
-    int old_timestamp = b->last_access;
+    int64_t old_timestamp = b->last_access;
     int retval = bitarray_get_bit(b, bit);
 
     bitbox_update_key_in_lru(box, key, old_timestamp, b->last_access);

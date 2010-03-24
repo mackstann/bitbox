@@ -23,13 +23,13 @@ typedef struct {
     int64_t offset;
 
     // so we can flush less-used data to disk.
-    int last_access;
+    int64_t last_access;
     char * key;
 } bitarray_t;
 
 // bitbox
 
-typedef std::multimap<const int, char *> bitbox_lru_map_t;
+typedef std::multimap<const int64_t, char *> bitbox_lru_map_t;
 
 typedef struct {
     // the main way we access data.  the key is an arbitrary string and the

@@ -27,7 +27,7 @@ gboolean idle_cleanup(gpointer data)
     bitbox_t * box = (bitbox_t *)data;
     bitbox_cleanup_single_step(box, BITBOX_MEMORY_LIMIT);
     cleanup_scheduled = FALSE;
-    return FALSE;
+    return bitbox_cleanup_needed(box) ? TRUE : FALSE;
 }
 
 class BitboxHandler : virtual public BitboxIf {
@@ -55,9 +55,9 @@ class BitboxHandler : virtual public BitboxIf {
 
         void set_bits(const std::string& key, const std::set<int64_t> & bits)
         {
-            bitarray_t * b = bitbox_find_array(this->box, key.c_str());
+            bitarray_t * b = bitbox_find_or_create_array(this->box, key.c_str());
             for(std::set<int64_t>::const_iterator it = bits.begin(); it != bits.end(); ++it)
-                bitbox_set_bit_nolookup(this->box, key.c_str(), b, *it);
+                bitbox_set_bit_nolookup(this->box,  b, *it);
             if(!cleanup_scheduled)
             {
                 g_idle_add(idle_cleanup, this->box);

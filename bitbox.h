@@ -24,7 +24,7 @@ typedef struct {
 
     // so we can flush less-used data to disk.
     int last_access;
-    char * name;
+    char * key;
 } bitarray_t;
 
 // bitbox
@@ -46,10 +46,11 @@ typedef struct {
 bitbox_t * bitbox_new(void);
 void bitbox_free(bitbox_t * box);
 void bitbox_set_bit(bitbox_t * box, const char * key, int64_t bit);
-void bitbox_set_bit_nolookup(bitbox_t * box, const char * key, bitarray_t * b, int64_t bit);
+void bitbox_set_bit_nolookup(bitbox_t * box, bitarray_t * b, int64_t bit);
 int bitbox_get_bit(bitbox_t * box, const char * key, int64_t bit);
 void bitbox_cleanup_single_step(bitbox_t * box, int64_t memory_limit);
 int bitbox_cleanup_needed(bitbox_t * box);
 bitarray_t * bitbox_find_array(bitbox_t * box, const char * key);
+bitarray_t * bitbox_find_or_create_array(bitbox_t * box, const char * key);
 
 #endif

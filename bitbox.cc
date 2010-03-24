@@ -65,7 +65,7 @@ static void bitarray_init_data(bitarray_t * b, int64_t start_bit)
     CHECK(b->array);
 }
 
-static bitarray_t * bitarray_new(int64_t start_bit)
+static bitarray_t * bitarray_new(const char * key, int64_t start_bit)
 {
     DEBUG("bitarray_new\n");
     bitarray_t * b = (bitarray_t *)malloc(sizeof(bitarray_t));
@@ -75,7 +75,7 @@ static bitarray_t * bitarray_new(int64_t start_bit)
     b->offset = 0;
     b->size = 0;
     b->array = NULL;
-    b->name = NULL;
+    b->key = strdup(key);
 
     if(start_bit > -1)
         bitarray_init_data(b, start_bit);
@@ -87,8 +87,8 @@ static void bitarray_free(bitarray_t * b)
 {
     DEBUG("bitarray_free\n");
     assert(b);
-    if(b->name)
-        free(b->name);
+    assert(b->key);
+    free(b->key);
     if(b->array)
         free(b->array);
     free(b);
@@ -148,7 +148,7 @@ static int bitarray_freeze(bitarray_t * b, uint8_t ** out_buffer, int64_t * out_
     return 0;
 }
 
-static bitarray_t * bitarray_thaw(uint8_t * buffer, int64_t bufsize, int64_t uncompressed_size, uint8_t is_compressed)
+static bitarray_t * bitarray_thaw(const char * key, uint8_t * buffer, int64_t bufsize, int64_t uncompressed_size, uint8_t is_compressed)
 {
     DEBUG("bitarray_thaw\n");
     if(is_compressed)
@@ -161,10 +161,11 @@ static bitarray_t * bitarray_thaw(uint8_t * buffer, int64_t bufsize, int64_t unc
     else
         CHECK(uncompressed_size == bufsize);
 
-    bitarray_t * b = bitarray_new(-1);
+    bitarray_t * b = bitarray_new(key, -1);
     b->size   = ((int64_t *)buffer)[0];
     b->offset = ((int64_t *)buffer)[1];
     b->array = NULL;
+    b->key = strdup(key);
     if(b->size)
     {
         b->array = (uint8_t *)malloc(b->size);
@@ -209,8 +210,16 @@ static void bitarray_load_frozen(const char * key, uint8_t ** buffer, int64_t * 
     int64_t file_size;
     uint8_t * contents;
 
-    g_file_get_contents(filename, (char **)&contents, (gsize *)&file_size, NULL); // XXX error handling
+    gboolean got_contents = g_file_get_contents(filename, (char **)&contents, (gsize *)&file_size, NULL);
     g_free(filename);
+    if(!got_contents)
+    {
+        *buffer = NULL;
+        *bufsize = 0;
+        *uncompressed_size = 0;
+        *is_compressed = 0;
+        return;
+    }
 
     *is_compressed = contents[0];
     *uncompressed_size = ((int64_t *)(contents + sizeof(uint8_t)))[0];
@@ -356,20 +365,54 @@ void bitbox_free(bitbox_t * box)
     free(box);
 }
 
+static bitarray_t * bitbox_find_array_in_memory(bitbox_t * box, const char * key)
+{
+    return (bitarray_t *)g_hash_table_lookup(box->hash, key);
+}
+
+static bitarray_t * bitbox_find_array_on_disk(bitbox_t * box, const char * key)
+{
+    uint8_t is_compressed, * buffer;
+    int64_t bufsize, uncompressed_size;
+    bitarray_load_frozen(key, &buffer, &bufsize, &uncompressed_size, &is_compressed);
+
+    if(!buffer)
+        return NULL;
+
+    return bitarray_thaw(key, buffer, bufsize, uncompressed_size, is_compressed);
+}
+
+static void bitbox_add_array_to_hash(bitbox_t * box, bitarray_t * b)
+{
+    g_hash_table_insert(box->hash, b->key, b);
+    box->size += BYTES_CONSUMED_PER_HASH_KEY;
+}
+
 bitarray_t * bitbox_find_array(bitbox_t * box, const char * key)
 {
-    bitarray_t * b = (bitarray_t *)g_hash_table_lookup(box->hash, key);
+    bitarray_t * b = bitbox_find_array_in_memory(box, key);
+    if(b)
+        return b;
+
+    b = bitbox_find_array_on_disk(box, key);
+    if(b)
+        bitbox_add_array_to_hash(box, b);
+
+    return b;
+}
+
+bitarray_t * bitbox_find_or_create_array(bitbox_t * box, const char * key)
+{
+    bitarray_t * b = bitbox_find_array(box, key);
     if(!b)
     {
-        b = bitarray_new(-1);
-        b->name = strdup(key);
-        g_hash_table_insert(box->hash, b->name, b);
-        box->size += BYTES_CONSUMED_PER_HASH_KEY;
+        b = bitarray_new(key, -1);
+        bitbox_add_array_to_hash(box, b);
     }
     return b;
 }
 
-static void bitbox_update_key_in_lru(bitbox_t * box, char * key, int old_timestamp, int new_timestamp)
+static void bitbox_update_key_in_lru(bitbox_t * box, const char * key, int old_timestamp, int new_timestamp)
 {
     //DEBUG("------------- UPDATE BEGIN ------------\n");
     if(old_timestamp)
@@ -395,7 +438,8 @@ static void bitbox_update_key_in_lru(bitbox_t * box, char * key, int old_timesta
     CHECK(new_timestamp);
     // and add the key with its new timestamp
     //DEBUG("<<<<<<<<<<<<INSERT %d %s INTO LRU>>>>>>>>>>>>>\n", new_timestamp, key);
-    box->lru.insert(bitbox_lru_map_t::value_type(new_timestamp, key));
+    box->lru.insert(bitbox_lru_map_t::value_type(new_timestamp, strdup(key)));
+    // could be smarter about reusing the key instead of always freeing & re-copying
 
     // TODO: duplicates will be reduced greatly by using time precision
     // greater than 1 second.
@@ -412,7 +456,7 @@ void bitbox_cleanup_if_angry(bitbox_t * box)
         bitbox_cleanup_single_step(box, BITBOX_MEMORY_ANGRY_LIMIT);
 }
 
-void bitbox_set_bit_nolookup(bitbox_t * box, const char * key, bitarray_t * b, int64_t bit)
+void bitbox_set_bit_nolookup(bitbox_t * box, bitarray_t * b, int64_t bit)
 {
     int old_timestamp = b->last_access;
     int64_t old_size = b->size;
@@ -420,46 +464,28 @@ void bitbox_set_bit_nolookup(bitbox_t * box, const char * key, bitarray_t * b, i
     bitarray_set_bit(b, bit);
 
     box->size += b->size - old_size;
-    bitbox_update_key_in_lru(box, strdup(key), old_timestamp, b->last_access);
+    bitbox_update_key_in_lru(box, b->key, old_timestamp, b->last_access);
 
     bitbox_cleanup_if_angry(box);
-
-    // uint8_t * buffer;
-    // int64_t bufsize;
-    // int64_t uncompressed_size;
-
-    // // freeze
-    // uint8_t is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
-    // bitarray_free(b);
-
-    // // save
-    // bitarray_save_frozen(key, buffer, bufsize, uncompressed_size, is_compressed);
-
-    // // load
-    // bitarray_load_frozen(key, &buffer, &bufsize, &uncompressed_size, &is_compressed);
-
-    // // unfreeze
-    // b = bitarray_thaw(buffer, bufsize, uncompressed_size, is_compressed);
-
-    // g_hash_table_remove(box->hash, key); // XXX the key gets leaked here -- should use g_hash_table_new_full
-    // g_hash_table_insert(box->hash, strdup(key), b);
 }
 
 void bitbox_set_bit(bitbox_t * box, const char * key, int64_t bit)
 {
-    bitarray_t * b = bitbox_find_array(box, key);
-    bitbox_set_bit_nolookup(box, key, b, bit);
+    bitarray_t * b = bitbox_find_or_create_array(box, key);
+    bitbox_set_bit_nolookup(box, b, bit);
 }
 
 int bitbox_get_bit(bitbox_t * box, const char * key, int64_t bit)
 {
-    bitarray_t * b = (bitarray_t *)g_hash_table_lookup(box->hash, key);
+    bitarray_t * b = bitbox_find_array(box, key);
+
     if(!b)
         return 0;
+
     int old_timestamp = b->last_access;
     int retval = bitarray_get_bit(b, bit);
 
-    bitbox_update_key_in_lru(box, strdup(key), old_timestamp, b->last_access);
+    bitbox_update_key_in_lru(box, key, old_timestamp, b->last_access);
 
     return retval;
 }
@@ -478,7 +504,7 @@ void bitbox_cleanup_single_step(bitbox_t * box, int64_t memory_limit)
         char * key = it->second;
         box->lru.erase(it);
 
-        bitarray_t * b = (bitarray_t *)g_hash_table_lookup(box->hash, key);
+        bitarray_t * b = bitbox_find_array_in_memory(box, key);
         CHECK(b);
 
         uint8_t * buffer;

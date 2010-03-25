@@ -20,6 +20,7 @@ bitbox-server: gen-cpp bitbox.cc bitbox.h server.cpp Makefile
 	g++ $(COMPILE_FLAGS) -c gen-cpp/Bitbox.cpp -o Bitbox.o
 	gcc $(COMPILE_FLAGS) -c liblzf-3.5/lzf_c.c -o lzf_c.o
 	gcc $(COMPILE_FLAGS) -c liblzf-3.5/lzf_d.c -o lzf_d.o
+	gcc $(COMPILE_FLAGS) -c sigh.c -o sigh.o
 	gcc $(LINK_FLAGS) *.o -o bitbox-server
 
 thrift: gen-cpp gen-py gen-php

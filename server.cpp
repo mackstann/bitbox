@@ -12,8 +12,10 @@
 #include <sys/poll.h>
 #include <stdio.h>
 #include <inttypes.h>
+#include <signal.h>
 
 #include "bitbox.h"
+#include "sigh.h"
 
 using namespace ::apache::thrift;
 using namespace ::apache::thrift::protocol;
@@ -78,6 +80,12 @@ class BitboxHandler : virtual public BitboxIf {
 
             free(abits);
         }
+
+        void shutdown()
+        {
+            bitbox_shutdown(this->box);
+            bitbox_free(this->box);
+        }
 };
 
 gboolean server_prepare_callback(GSource * source, gint * timeout_) {
@@ -106,8 +114,21 @@ gboolean server_dispatch_callback(GSource * source, GSourceFunc callback, gpoint
     return TRUE;
 }
 
+static GMainLoop * loop;
+
+gboolean signal_check(gpointer data)
+{
+    if(sigh_poll((sigset_t *)data))
+        g_main_loop_quit(loop);
+    return TRUE;
+}
+
 int main(int argc, char **argv) {
   int port = 9090;
+
+  sigset_t sigs = sigh_make_sigset(SIGINT, SIGTERM, 0);
+  assert(sigh_watch(&sigs));
+
   shared_ptr<BitboxHandler> handler(new BitboxHandler());
   shared_ptr<TProcessor> processor(new BitboxProcessor(handler));
   shared_ptr<TServerTransport> serverTransport(new TServerSocket(port));
@@ -120,6 +141,8 @@ int main(int argc, char **argv) {
   std::vector<struct pollfd> fds = serverTransport->getFDs();
 
   // add the server polling source to the main loop
+
+  loop = g_main_loop_new(NULL, FALSE);
 
   GSourceFuncs sourcefuncs;
 
@@ -140,11 +163,17 @@ int main(int argc, char **argv) {
   }
 
   g_idle_add(idle_cleanup, handler->box);
+  g_timeout_add_seconds(1, signal_check, &sigs);
 
   // start the main loop
 
-  GMainLoop * loop = g_main_loop_new(NULL, FALSE);
   g_main_loop_run(loop);
+
+  // shutdown
+
+  handler->shutdown();
+  fprintf(stderr, "shutdown cleanly.\n");
+
   return 0;
 }
 

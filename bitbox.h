@@ -43,6 +43,7 @@ typedef struct {
 
 bitbox_t * bitbox_new(void);
 void       bitbox_free(bitbox_t * box);
+void bitbox_shutdown(bitbox_t * box);
 
 int  bitbox_get_bit (bitbox_t * box, const char * key, int64_t bit);
 void bitbox_set_bit (bitbox_t * box, const char * key, int64_t bit);

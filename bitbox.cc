@@ -442,34 +442,44 @@ int bitbox_get_bit(bitbox_t * box, const char * key, int64_t bit)
     return retval;
 }
 
+static void bitbox_banish_to_disk(bitbox_t * box, const char * key)
+{
+    bitarray_t * b = bitbox_find_array_in_memory(box, key);
+    assert(b);
+
+    uint8_t * buffer;
+    int64_t bufsize;
+    int64_t uncompressed_size;
+    uint8_t is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
+    bitarray_save_frozen(key, buffer, bufsize, uncompressed_size, is_compressed);
+
+    g_hash_table_remove(box->hash, key);
+    bitarray_free(b);
+}
+
+static void bitbox_banish_oldest_item_to_disk(bitbox_t * box)
+{
+    assert(g_hash_table_size(box->hash) == box->lru.size());
+    bitbox_lru_map_t::iterator it = box->lru.begin();
+    char * key = it->second;
+    box->lru.erase(it);
+    bitbox_banish_to_disk(box, key);
+    free(key);
+}
+
 void bitbox_cleanup_single_step(bitbox_t * box, int64_t item_limit)
 {
     //DEBUG("************ box too big? %d\n", g_hash_table_size(box->hash) >= item_limit);
     //DEBUG("************ lru size? %d\n", box->lru.size());
     //DEBUG("************ hash size? %d\n", g_hash_table_size(box->hash));
-    assert(g_hash_table_size(box->hash) == box->lru.size());
-    if(g_hash_table_size(box->hash) >= item_limit && box->lru.size())
-    {
-        bitbox_lru_map_t::iterator it = box->lru.begin();
+    if(g_hash_table_size(box->hash) >= item_limit)
+        bitbox_banish_oldest_item_to_disk(box);
+}
 
-        //DEBUG("CLEANUP!\n");
-
-        char * key = it->second;
-        box->lru.erase(it);
-
-        bitarray_t * b = bitbox_find_array_in_memory(box, key);
-        assert(b);
-
-        uint8_t * buffer;
-        int64_t bufsize;
-        int64_t uncompressed_size;
-        uint8_t is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
-        bitarray_save_frozen(key, buffer, bufsize, uncompressed_size, is_compressed);
-
-        g_hash_table_remove(box->hash, key);
-        bitarray_free(b);
-        free(key);
-    }
+void bitbox_shutdown(bitbox_t * box)
+{
+    while(g_hash_table_size(box->hash))
+        bitbox_banish_oldest_item_to_disk(box);
 }
 
 int bitbox_cleanup_needed(bitbox_t * box)

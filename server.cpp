@@ -25,13 +25,25 @@ using namespace ::apache::thrift::server;
 using boost::shared_ptr;
 
 static int downsize_running = 0;
-
 gboolean idle_downsize(gpointer data)
 {
-    fprintf(stderr, "IN THE CALLBACK\n");
     bitbox_t * box = (bitbox_t *)data;
     bitbox_downsize_single_step(box, BITBOX_ITEM_LIMIT);
-    return bitbox_downsize_needed(box) ? TRUE : FALSE;
+    downsize_running = bitbox_downsize_needed(box);
+    if(!downsize_running)
+        fprintf(stderr, "finished downsizing\n");
+    return downsize_running ? TRUE : FALSE;
+}
+
+static int diskwrite_running = 0;
+gboolean idle_diskwrite(gpointer data)
+{
+    bitbox_t * box = (bitbox_t *)data;
+    bitbox_diskwrite_single_step(box);
+    diskwrite_running = bitbox_needs_disk_write(box);
+    if(!diskwrite_running)
+        fprintf(stderr, "finished disk writes\n");
+    return diskwrite_running ? TRUE : FALSE;
 }
 
 class BitboxHandler : virtual public BitboxIf {
@@ -40,9 +52,18 @@ class BitboxHandler : virtual public BitboxIf {
         {
             if(!downsize_running)
             {
-                fprintf(stderr, "ADD THE CALLBACK\n");
+                fprintf(stderr, "ADD THE DOWNSIZE CALLBACK\n");
                 g_idle_add(idle_downsize, this->box);
                 downsize_running = 1;
+            }
+        }
+        void schedule_diskwrite()
+        {
+            if(!diskwrite_running)
+            {
+                fprintf(stderr, "ADD THE DISKWRITE CALLBACK\n");
+                g_idle_add(idle_diskwrite, this->box);
+                diskwrite_running = 1;
             }
         }
     public:
@@ -60,12 +81,14 @@ class BitboxHandler : virtual public BitboxIf {
         void set_bit(const std::string& key, const int64_t bit)
         {
             this->schedule_downsize();
+            this->schedule_diskwrite();
             bitbox_set_bit(this->box, key.c_str(), bit);
         }
 
         void set_bits(const std::string& key, const std::set<int64_t> & bits)
         {
             this->schedule_downsize();
+            this->schedule_diskwrite();
             // convert to a plain c array
             std::vector<int64_t> vbits;
             int64_t * abits = (int64_t *)malloc(bits.size() * sizeof(int64_t));

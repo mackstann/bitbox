@@ -301,6 +301,9 @@ bitbox_t * bitbox_new(void)
     box->hash = g_hash_table_new(g_str_hash, g_str_equal);
     assert(box->hash);
 
+    box->need_disk_write = g_hash_table_new(g_direct_hash, g_direct_equal);
+    assert(box->need_disk_write);
+
     box->lru = bitbox_lru_map_t();
 
     return box;
@@ -312,7 +315,7 @@ void bitbox_free(bitbox_t * box)
     gpointer key, value;
 
     g_hash_table_iter_init(&iter, box->hash);
-    while(g_hash_table_iter_next(&iter, &key, &value)) 
+    while(g_hash_table_iter_next(&iter, &key, &value))
         bitarray_free((bitarray_t *)value);
 
     g_hash_table_destroy(box->hash);
@@ -410,6 +413,8 @@ static void bitbox_set_bit_nolookup(bitbox_t * box, bitarray_t * b, int64_t bit)
     bitarray_set_bit(b, bit);
 
     bitbox_update_key_in_lru(box, b->key, old_timestamp, b->last_access);
+
+    g_hash_table_insert(box->need_disk_write, b, GINT_TO_POINTER(1));
 }
 
 void bitbox_set_bit(bitbox_t * box, const char * key, int64_t bit)
@@ -462,6 +467,7 @@ static void bitbox_banish_oldest_item_to_disk(bitbox_t * box)
     assert(b);
     bitarray_save_to_disk(b);
     g_hash_table_remove(box->hash, key);
+    g_hash_table_remove(box->need_disk_write, b);
 
     bitarray_free(b);
     free(key);
@@ -476,16 +482,35 @@ void bitbox_downsize_single_step(bitbox_t * box, int64_t item_limit)
         bitbox_banish_oldest_item_to_disk(box);
 }
 
+int bitbox_needs_disk_write(bitbox_t * box)
+{
+    return g_hash_table_size(box->need_disk_write) ? 1 : 0;
+}
+
+void bitbox_write_one_to_disk(bitbox_t * box)
+{
+    GHashTableIter iter;
+    gpointer key, value;
+
+    g_hash_table_iter_init(&iter, box->need_disk_write);
+    if(g_hash_table_iter_next(&iter, &key, &value))
+    {
+        bitarray_save_to_disk((bitarray_t *)key);
+        g_hash_table_remove(box->need_disk_write, key);
+    }
+    DEBUG("wrote one to disk. %d left\n", g_hash_table_size(box->need_disk_write));
+}
+
+void bitbox_diskwrite_single_step(bitbox_t * box)
+{
+    if(g_hash_table_size(box->need_disk_write))
+        bitbox_write_one_to_disk(box);
+}
+
 void bitbox_shutdown(bitbox_t * box)
 {
-    guint total_size = g_hash_table_size(box->hash);
-    guint current_size;
-    while((current_size = g_hash_table_size(box->hash)))
-    {
-        fprintf(stderr, "\r%d%%", (int)((1.0-((double)current_size/total_size))*100));
-        bitbox_banish_oldest_item_to_disk(box);
-    }
-    fprintf(stderr, "\r100%%\n");
+    while(bitbox_needs_disk_write(box))
+        bitbox_write_one_to_disk(box);
 }
 
 int bitbox_downsize_needed(bitbox_t * box)

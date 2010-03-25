@@ -36,9 +36,15 @@ typedef struct {
     // value is a bitarray_t.
     GHashTable * hash;
 
-    // we use this to implement efficient dump-to-disk behavior.  the key is a
-    // timestamp and the value corresponds to a key in the hash.
+    // we use this to implement efficient dump-to-disk behavior to keep memory
+    // usage reasonable.  the key is a timestamp and the value corresponds to a
+    // key in the hash.
     bitbox_lru_map_t lru;
+
+    // this is to prevent having memory get too out of sync with the disk,
+    // causing lots of data loss in case of an unclean shutdown.  it is used as
+    // a set.  the key is the bitbox_t* and the value is a dummy.
+    GHashTable * need_disk_write;
 } bitbox_t;
 
 bitbox_t * bitbox_new(void);
@@ -51,6 +57,9 @@ void bitbox_set_bits(bitbox_t * box, const char * key, int64_t * bits, int64_t n
 
 void bitbox_downsize_single_step(bitbox_t * box, int64_t memory_limit);
 int  bitbox_downsize_needed     (bitbox_t * box);
+
+void bitbox_diskwrite_single_step(bitbox_t * box);
+int  bitbox_needs_disk_write     (bitbox_t * box);
 
 bitarray_t * bitbox_find_array          (bitbox_t * box, const char * key);
 bitarray_t * bitbox_find_or_create_array(bitbox_t * box, const char * key);

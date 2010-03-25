@@ -7,7 +7,7 @@ gen-py: bitbox.thrift *.cpp Makefile
 gen-php: bitbox.thrift *.cpp Makefile
 	thrift --gen php bitbox.thrift
 
-COMPILE_FLAGS=-ggdb -Wall `pkg-config --cflags glib-2.0` \
+COMPILE_FLAGS=-O2 -Wall `pkg-config --cflags glib-2.0` \
 	      -I. -Igen-cpp -Iliblzf-3.5 -I/usr/local/include/thrift
 
 LINK_FLAGS=`pkg-config --libs glib-2.0` -lthrift

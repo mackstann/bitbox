@@ -171,6 +171,7 @@ int main(int argc, char **argv) {
 
   // shutdown
 
+  fprintf(stderr, "shutting down.\n");
   handler->shutdown();
   fprintf(stderr, "shutdown cleanly.\n");
 

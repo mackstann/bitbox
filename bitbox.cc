@@ -478,8 +478,14 @@ void bitbox_cleanup_single_step(bitbox_t * box, int64_t item_limit)
 
 void bitbox_shutdown(bitbox_t * box)
 {
-    while(g_hash_table_size(box->hash))
+    guint total_size = g_hash_table_size(box->hash);
+    guint current_size;
+    while((current_size = g_hash_table_size(box->hash)))
+    {
+        fprintf(stderr, "\r%d%%", (int)((1.0-((double)current_size/total_size))*100));
         bitbox_banish_oldest_item_to_disk(box);
+    }
+    fprintf(stderr, "\r100%%\n");
 }
 
 int bitbox_cleanup_needed(bitbox_t * box)

@@ -22,17 +22,32 @@ using namespace ::apache::thrift::server;
 
 using boost::shared_ptr;
 
-static int cleanup_scheduled = 0;
+static int cleanup_running = 0;
 
 gboolean idle_cleanup(gpointer data)
 {
+    fprintf(stderr, "IN THE CALLBACK\n");
     bitbox_t * box = (bitbox_t *)data;
-    bitbox_cleanup_single_step(box, BITBOX_MEMORY_LIMIT);
-    int cleanup_scheduled = bitbox_cleanup_needed(box);
-    return cleanup_scheduled ? TRUE : FALSE;
+    bitbox_cleanup_single_step(box, BITBOX_ITEM_LIMIT);
+    cleanup_running = bitbox_cleanup_needed(box);
+    if(cleanup_running)
+        fprintf(stderr, "continuing the cleanup\n");
+    else
+        fprintf(stderr, "no more cleanup needed\n");
+    return cleanup_running ? TRUE : FALSE;
 }
 
 class BitboxHandler : virtual public BitboxIf {
+    private:
+        void schedule_cleanup()
+        {
+            if(!cleanup_running)
+            {
+                fprintf(stderr, "ADD THE CALLBACK\n");
+                g_idle_add(idle_cleanup, this->box);
+                cleanup_running = 1;
+            }
+        }
     public:
         bitbox_t * box;
 
@@ -47,16 +62,13 @@ class BitboxHandler : virtual public BitboxIf {
 
         void set_bit(const std::string& key, const int64_t bit)
         {
+            this->schedule_cleanup();
             bitbox_set_bit(this->box, key.c_str(), bit);
-            if(!cleanup_scheduled)
-            {
-                g_idle_add(idle_cleanup, this->box);
-                cleanup_scheduled = 1;
-            }
         }
 
         void set_bits(const std::string& key, const std::set<int64_t> & bits)
         {
+            this->schedule_cleanup();
             // convert to a plain c array
             std::vector<int64_t> vbits;
             int64_t * abits = (int64_t *)malloc(bits.size() * sizeof(int64_t));
@@ -65,12 +77,6 @@ class BitboxHandler : virtual public BitboxIf {
             bitbox_set_bits(this->box, key.c_str(), abits, bits.size());
 
             free(abits);
-
-            if(!cleanup_scheduled)
-            {
-                g_idle_add(idle_cleanup, this->box);
-                cleanup_scheduled = 1;
-            }
         }
 };
 
@@ -133,7 +139,6 @@ int main(int argc, char **argv) {
       g_source_attach((GSource *)source, NULL);
   }
 
-  // add the idle function to the main loop
   g_idle_add(idle_cleanup, handler->box);
 
   // start the main loop

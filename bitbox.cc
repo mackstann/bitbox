@@ -301,11 +301,7 @@ bitbox_t * bitbox_new(void)
     box->hash = g_hash_table_new(g_str_hash, g_str_equal);
     assert(box->hash);
 
-    box->memory_size = 0;
-
     box->lru = bitbox_lru_map_t();
-
-    box->proc_stat_filename = g_strdup_printf("/proc/%d/stat", getpid());
 
     return box;
 }
@@ -320,7 +316,6 @@ void bitbox_free(bitbox_t * box)
         bitarray_free((bitarray_t *)value);
 
     g_hash_table_destroy(box->hash);
-    g_free(box->proc_stat_filename);
     free(box);
 }
 
@@ -349,23 +344,6 @@ static void bitbox_update_key_in_lru(bitbox_t * box, const char * key, int64_t o
     // and add the key with its new timestamp
     box->lru.insert(bitbox_lru_map_t::value_type(new_timestamp, strdup(key)));
     // could be smarter about reusing the key instead of always freeing & re-copying
-}
-
-static void bitbox_find_memory_usage(bitbox_t * box)
-{
-    char * contents;
-    if(g_file_get_contents(box->proc_stat_filename, &contents, NULL, NULL))
-    {
-        int field_index = 0;
-        const char * p;
-        for(p = contents; *p && *p != '\n' && field_index < 22; p++)
-        {
-            if(*p == ' ')
-                field_index++;
-        }
-        box->memory_size = atoll(p);
-        g_free(contents);
-    }
 }
 
 static bitarray_t * bitbox_find_array_in_memory(bitbox_t * box, const char * key)
@@ -420,9 +398,8 @@ void bitbox_cleanup_if_angry(bitbox_t * box)
     // ok, that's it.  even if really busy, bring memory usage down below the
     // "angry" limit before proceeding.  we'll never be very far past the
     // limit, so the while loop isn't as scary as it might look.
-    DEBUG("size is %" PRId64 " and angry limit is %d\n", box->memory_size, BITBOX_MEMORY_ANGRY_LIMIT);
-    while(box->memory_size >= BITBOX_MEMORY_ANGRY_LIMIT && box->lru.size())
-        bitbox_cleanup_single_step(box, BITBOX_MEMORY_ANGRY_LIMIT);
+    while(g_hash_table_size(box->hash) >= BITBOX_ITEM_PEAK_LIMIT && box->lru.size())
+        bitbox_cleanup_single_step(box, BITBOX_ITEM_PEAK_LIMIT);
 }
 
 static void bitbox_set_bit_nolookup(bitbox_t * box, bitarray_t * b, int64_t bit)
@@ -439,7 +416,6 @@ void bitbox_set_bit(bitbox_t * box, const char * key, int64_t bit)
 {
     bitarray_t * b = bitbox_find_or_create_array(box, key);
     bitbox_set_bit_nolookup(box, b, bit);
-    bitbox_find_memory_usage(box);
     bitbox_cleanup_if_angry(box);
 }
 
@@ -448,7 +424,6 @@ void bitbox_set_bits(bitbox_t * box, const char * key, int64_t * bits, int64_t n
     bitarray_t * b = bitbox_find_or_create_array(box, key);
     for(int64_t i = 0; i < nbits; i++)
         bitbox_set_bit_nolookup(box, b, bits[i]);
-    bitbox_find_memory_usage(box);
     bitbox_cleanup_if_angry(box);
 }
 
@@ -467,17 +442,17 @@ int bitbox_get_bit(bitbox_t * box, const char * key, int64_t bit)
     return retval;
 }
 
-void bitbox_cleanup_single_step(bitbox_t * box, int64_t memory_limit)
+void bitbox_cleanup_single_step(bitbox_t * box, int64_t item_limit)
 {
-    DEBUG("************ box too big? %d\n", box->memory_size >= memory_limit);
-    DEBUG("************ lru size? %d\n", box->lru.size());
-    DEBUG("************ hash size? %d\n", g_hash_table_size(box->hash));
+    //DEBUG("************ box too big? %d\n", g_hash_table_size(box->hash) >= item_limit);
+    //DEBUG("************ lru size? %d\n", box->lru.size());
+    //DEBUG("************ hash size? %d\n", g_hash_table_size(box->hash));
     assert(g_hash_table_size(box->hash) == box->lru.size());
-    if(box->memory_size >= memory_limit && box->lru.size())
+    if(g_hash_table_size(box->hash) >= item_limit && box->lru.size())
     {
         bitbox_lru_map_t::iterator it = box->lru.begin();
 
-        DEBUG("CLEANUP! using about %" PRId64 " bytes\n", box->memory_size);
+        //DEBUG("CLEANUP!\n");
 
         char * key = it->second;
         box->lru.erase(it);
@@ -499,5 +474,8 @@ void bitbox_cleanup_single_step(bitbox_t * box, int64_t memory_limit)
 
 int bitbox_cleanup_needed(bitbox_t * box)
 {
-    return box->memory_size >= BITBOX_MEMORY_LIMIT && box->lru.size();
+    DEBUG("size is %u and angry limit is %d\n", g_hash_table_size(box->hash), BITBOX_ITEM_PEAK_LIMIT);
+    //if( g_hash_table_size(box->hash) >= BITBOX_ITEM_LIMIT && box->lru.size())
+        //DEBUG("cleanup needed.\n");
+    return g_hash_table_size(box->hash) >= BITBOX_ITEM_LIMIT && box->lru.size();
 }

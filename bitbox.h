@@ -9,8 +9,8 @@
 #include <glib.h>
 #include <map>
 
-#define BITBOX_MEMORY_LIMIT       15000000
-#define BITBOX_MEMORY_ANGRY_LIMIT 20000000
+#define BITBOX_ITEM_LIMIT       1500
+#define BITBOX_ITEM_PEAK_LIMIT  2000
 
 // bitarray
 
@@ -39,9 +39,6 @@ typedef struct {
     // we use this to implement efficient dump-to-disk behavior.  the key is a
     // timestamp and the value corresponds to a key in the hash.
     bitbox_lru_map_t lru;
-
-    int64_t memory_size; // sum of the sizes of all bitarrays it holds
-    char * proc_stat_filename;
 } bitbox_t;
 
 bitbox_t * bitbox_new(void);

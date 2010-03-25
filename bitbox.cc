@@ -393,13 +393,13 @@ bitarray_t * bitbox_find_or_create_array(bitbox_t * box, const char * key)
     return b;
 }
 
-void bitbox_cleanup_if_angry(bitbox_t * box)
+void bitbox_downsize_if_angry(bitbox_t * box)
 {
     // ok, that's it.  even if really busy, bring memory usage down below the
     // "angry" limit before proceeding.  we'll never be very far past the
     // limit, so the while loop isn't as scary as it might look.
     while(g_hash_table_size(box->hash) >= BITBOX_ITEM_PEAK_LIMIT && box->lru.size())
-        bitbox_cleanup_single_step(box, BITBOX_ITEM_PEAK_LIMIT);
+        bitbox_downsize_single_step(box, BITBOX_ITEM_PEAK_LIMIT);
 }
 
 static void bitbox_set_bit_nolookup(bitbox_t * box, bitarray_t * b, int64_t bit)
@@ -416,7 +416,7 @@ void bitbox_set_bit(bitbox_t * box, const char * key, int64_t bit)
 {
     bitarray_t * b = bitbox_find_or_create_array(box, key);
     bitbox_set_bit_nolookup(box, b, bit);
-    bitbox_cleanup_if_angry(box);
+    bitbox_downsize_if_angry(box);
 }
 
 void bitbox_set_bits(bitbox_t * box, const char * key, int64_t * bits, int64_t nbits)
@@ -424,7 +424,7 @@ void bitbox_set_bits(bitbox_t * box, const char * key, int64_t * bits, int64_t n
     bitarray_t * b = bitbox_find_or_create_array(box, key);
     for(int64_t i = 0; i < nbits; i++)
         bitbox_set_bit_nolookup(box, b, bits[i]);
-    bitbox_cleanup_if_angry(box);
+    bitbox_downsize_if_angry(box);
 }
 
 int bitbox_get_bit(bitbox_t * box, const char * key, int64_t bit)
@@ -442,19 +442,13 @@ int bitbox_get_bit(bitbox_t * box, const char * key, int64_t bit)
     return retval;
 }
 
-static void bitbox_banish_to_disk(bitbox_t * box, const char * key)
+static void bitarray_save_to_disk(bitarray_t * b)
 {
-    bitarray_t * b = bitbox_find_array_in_memory(box, key);
-    assert(b);
-
     uint8_t * buffer;
     int64_t bufsize;
     int64_t uncompressed_size;
     uint8_t is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
-    bitarray_save_frozen(key, buffer, bufsize, uncompressed_size, is_compressed);
-
-    g_hash_table_remove(box->hash, key);
-    bitarray_free(b);
+    bitarray_save_frozen(b->key, buffer, bufsize, uncompressed_size, is_compressed);
 }
 
 static void bitbox_banish_oldest_item_to_disk(bitbox_t * box)
@@ -463,11 +457,17 @@ static void bitbox_banish_oldest_item_to_disk(bitbox_t * box)
     bitbox_lru_map_t::iterator it = box->lru.begin();
     char * key = it->second;
     box->lru.erase(it);
-    bitbox_banish_to_disk(box, key);
+
+    bitarray_t * b = bitbox_find_array_in_memory(box, key);
+    assert(b);
+    bitarray_save_to_disk(b);
+    g_hash_table_remove(box->hash, key);
+
+    bitarray_free(b);
     free(key);
 }
 
-void bitbox_cleanup_single_step(bitbox_t * box, int64_t item_limit)
+void bitbox_downsize_single_step(bitbox_t * box, int64_t item_limit)
 {
     //DEBUG("************ box too big? %d\n", g_hash_table_size(box->hash) >= item_limit);
     //DEBUG("************ lru size? %d\n", box->lru.size());
@@ -488,10 +488,10 @@ void bitbox_shutdown(bitbox_t * box)
     fprintf(stderr, "\r100%%\n");
 }
 
-int bitbox_cleanup_needed(bitbox_t * box)
+int bitbox_downsize_needed(bitbox_t * box)
 {
     DEBUG("size is %u and angry limit is %d\n", g_hash_table_size(box->hash), BITBOX_ITEM_PEAK_LIMIT);
     //if( g_hash_table_size(box->hash) >= BITBOX_ITEM_LIMIT && box->lru.size())
-        //DEBUG("cleanup needed.\n");
+        //DEBUG("downsize needed.\n");
     return g_hash_table_size(box->hash) >= BITBOX_ITEM_LIMIT && box->lru.size();
 }

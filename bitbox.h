@@ -49,8 +49,8 @@ int  bitbox_get_bit (bitbox_t * box, const char * key, int64_t bit);
 void bitbox_set_bit (bitbox_t * box, const char * key, int64_t bit);
 void bitbox_set_bits(bitbox_t * box, const char * key, int64_t * bits, int64_t nbits);
 
-void bitbox_cleanup_single_step(bitbox_t * box, int64_t memory_limit);
-int  bitbox_cleanup_needed     (bitbox_t * box);
+void bitbox_downsize_single_step(bitbox_t * box, int64_t memory_limit);
+int  bitbox_downsize_needed     (bitbox_t * box);
 
 bitarray_t * bitbox_find_array          (bitbox_t * box, const char * key);
 bitarray_t * bitbox_find_or_create_array(bitbox_t * box, const char * key);

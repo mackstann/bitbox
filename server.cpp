@@ -24,30 +24,25 @@ using namespace ::apache::thrift::server;
 
 using boost::shared_ptr;
 
-static int cleanup_running = 0;
+static int downsize_running = 0;
 
-gboolean idle_cleanup(gpointer data)
+gboolean idle_downsize(gpointer data)
 {
     fprintf(stderr, "IN THE CALLBACK\n");
     bitbox_t * box = (bitbox_t *)data;
-    bitbox_cleanup_single_step(box, BITBOX_ITEM_LIMIT);
-    cleanup_running = bitbox_cleanup_needed(box);
-    if(cleanup_running)
-        fprintf(stderr, "continuing the cleanup\n");
-    else
-        fprintf(stderr, "no more cleanup needed\n");
-    return cleanup_running ? TRUE : FALSE;
+    bitbox_downsize_single_step(box, BITBOX_ITEM_LIMIT);
+    return bitbox_downsize_needed(box) ? TRUE : FALSE;
 }
 
 class BitboxHandler : virtual public BitboxIf {
     private:
-        void schedule_cleanup()
+        void schedule_downsize()
         {
-            if(!cleanup_running)
+            if(!downsize_running)
             {
                 fprintf(stderr, "ADD THE CALLBACK\n");
-                g_idle_add(idle_cleanup, this->box);
-                cleanup_running = 1;
+                g_idle_add(idle_downsize, this->box);
+                downsize_running = 1;
             }
         }
     public:
@@ -64,13 +59,13 @@ class BitboxHandler : virtual public BitboxIf {
 
         void set_bit(const std::string& key, const int64_t bit)
         {
-            this->schedule_cleanup();
+            this->schedule_downsize();
             bitbox_set_bit(this->box, key.c_str(), bit);
         }
 
         void set_bits(const std::string& key, const std::set<int64_t> & bits)
         {
-            this->schedule_cleanup();
+            this->schedule_downsize();
             // convert to a plain c array
             std::vector<int64_t> vbits;
             int64_t * abits = (int64_t *)malloc(bits.size() * sizeof(int64_t));
@@ -162,7 +157,6 @@ int main(int argc, char **argv) {
       g_source_attach((GSource *)source, NULL);
   }
 
-  g_idle_add(idle_cleanup, handler->box);
   g_timeout_add_seconds(1, signal_check, &sigs);
 
   // start the main loop

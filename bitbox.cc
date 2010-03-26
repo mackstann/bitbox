@@ -298,12 +298,11 @@ bitbox_t * bitbox_new(void)
     bitbox_t * box = (bitbox_t *)malloc(sizeof(bitbox_t));
     assert(box);
 
-    box->hash = g_hash_table_new(g_str_hash, g_str_equal);
-    assert(box->hash);
-
     box->need_disk_write = g_hash_table_new(g_direct_hash, g_direct_equal);
     assert(box->need_disk_write);
 
+    box->hash = new bitbox_hash_t(10, bitbox_hasher(), eqstr());
+    box->hash->set_deleted_key("");
     box->lru = bitbox_lru_map_t();
 
     return box;
@@ -311,14 +310,12 @@ bitbox_t * bitbox_new(void)
 
 void bitbox_free(bitbox_t * box)
 {
-    GHashTableIter iter;
-    gpointer key, value;
-
-    g_hash_table_iter_init(&iter, box->hash);
-    while(g_hash_table_iter_next(&iter, &key, &value))
-        bitarray_free((bitarray_t *)value);
-
-    g_hash_table_destroy(box->hash);
+    bitbox_hash_t::iterator it = box->hash->begin();
+    for(; it != box->hash->end(); ++it)
+    {
+        bitarray_free(it->second);
+        box->hash->erase(it);
+    }
     free(box);
 }
 
@@ -351,7 +348,8 @@ static void bitbox_update_key_in_lru(bitbox_t * box, const char * key, int64_t o
 
 static bitarray_t * bitbox_find_array_in_memory(bitbox_t * box, const char * key)
 {
-    return (bitarray_t *)g_hash_table_lookup(box->hash, key);
+    bitbox_hash_t::iterator it = box->hash->find(key);
+    return it == box->hash->end() ? NULL : it->second;
 }
 
 static bitarray_t * bitbox_find_array_on_disk(bitbox_t * box, const char * key)
@@ -368,7 +366,7 @@ static bitarray_t * bitbox_find_array_on_disk(bitbox_t * box, const char * key)
 
 static void bitbox_add_array_to_hash(bitbox_t * box, bitarray_t * b)
 {
-    g_hash_table_insert(box->hash, b->key, b);
+    (*box->hash)[b->key] = b;
     bitbox_update_key_in_lru(box, b->key, 0, b->last_access);
 }
 
@@ -401,7 +399,7 @@ void bitbox_downsize_if_angry(bitbox_t * box)
     // ok, that's it.  even if really busy, bring memory usage down below the
     // "angry" limit before proceeding.  we'll never be very far past the
     // limit, so the while loop isn't as scary as it might look.
-    while(g_hash_table_size(box->hash) >= BITBOX_ITEM_PEAK_LIMIT && box->lru.size())
+    while(box->hash->size() >= BITBOX_ITEM_PEAK_LIMIT && box->lru.size())
         bitbox_downsize_single_step(box, BITBOX_ITEM_PEAK_LIMIT);
 }
 
@@ -458,7 +456,7 @@ static void bitarray_save_to_disk(bitarray_t * b)
 
 static void bitbox_banish_oldest_item_to_disk(bitbox_t * box)
 {
-    assert(g_hash_table_size(box->hash) == box->lru.size());
+    assert(box->hash->size() == box->lru.size());
     bitbox_lru_map_t::iterator it = box->lru.begin();
     char * key = it->second;
     box->lru.erase(it);
@@ -466,7 +464,7 @@ static void bitbox_banish_oldest_item_to_disk(bitbox_t * box)
     bitarray_t * b = bitbox_find_array_in_memory(box, key);
     assert(b);
     bitarray_save_to_disk(b);
-    g_hash_table_remove(box->hash, key);
+    box->hash->erase(key);
     g_hash_table_remove(box->need_disk_write, b);
 
     bitarray_free(b);
@@ -478,7 +476,7 @@ void bitbox_downsize_single_step(bitbox_t * box, int64_t item_limit)
     //DEBUG("************ box too big? %d\n", g_hash_table_size(box->hash) >= item_limit);
     //DEBUG("************ lru size? %d\n", box->lru.size());
     //DEBUG("************ hash size? %d\n", g_hash_table_size(box->hash));
-    if(g_hash_table_size(box->hash) >= item_limit)
+    if(box->hash->size() >= (bitbox_hash_t::size_type)item_limit)
         bitbox_banish_oldest_item_to_disk(box);
 }
 
@@ -515,8 +513,8 @@ void bitbox_shutdown(bitbox_t * box)
 
 int bitbox_downsize_needed(bitbox_t * box)
 {
-    DEBUG("size is %u and angry limit is %d\n", g_hash_table_size(box->hash), BITBOX_ITEM_PEAK_LIMIT);
+    DEBUG("size is %d and angry limit is %d\n", (int)box->hash->size(), BITBOX_ITEM_PEAK_LIMIT);
     //if( g_hash_table_size(box->hash) >= BITBOX_ITEM_LIMIT && box->lru.size())
         //DEBUG("downsize needed.\n");
-    return g_hash_table_size(box->hash) >= BITBOX_ITEM_LIMIT && box->lru.size();
+    return box->hash->size() >= BITBOX_ITEM_LIMIT && box->lru.size();
 }

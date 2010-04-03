@@ -298,11 +298,12 @@ bitbox_t * bitbox_new(void)
     bitbox_t * box = (bitbox_t *)malloc(sizeof(bitbox_t));
     assert(box);
 
-    box->need_disk_write = g_hash_table_new(g_direct_hash, g_direct_equal);
-    assert(box->need_disk_write);
-
-    box->hash = new bitbox_hash_t(10, bitbox_hasher(), eqstr());
+    box->hash = new bitbox_hash_t(10, bitbox_str_hasher(), eqstr());
     box->hash->set_deleted_key("");
+
+    box->need_disk_write = new bitbox_need_disk_write_set_t();
+    box->need_disk_write->set_deleted_key(NULL);
+
     box->lru = bitbox_lru_map_t();
 
     return box;
@@ -412,7 +413,7 @@ static void bitbox_set_bit_nolookup(bitbox_t * box, bitarray_t * b, int64_t bit)
 
     bitbox_update_key_in_lru(box, b->key, old_timestamp, b->last_access);
 
-    g_hash_table_insert(box->need_disk_write, b, GINT_TO_POINTER(1));
+    box->need_disk_write->insert(b);
 }
 
 void bitbox_set_bit(bitbox_t * box, const char * key, int64_t bit)
@@ -465,7 +466,7 @@ static void bitbox_banish_oldest_item_to_disk(bitbox_t * box)
     assert(b);
     bitarray_save_to_disk(b);
     box->hash->erase(key);
-    g_hash_table_remove(box->need_disk_write, b);
+    box->need_disk_write->erase(b);
 
     bitarray_free(b);
     free(key);
@@ -482,26 +483,23 @@ void bitbox_downsize_single_step(bitbox_t * box, int64_t item_limit)
 
 int bitbox_needs_disk_write(bitbox_t * box)
 {
-    return g_hash_table_size(box->need_disk_write) ? 1 : 0;
+    return box->need_disk_write->empty() ? 0 : 1;
 }
 
 void bitbox_write_one_to_disk(bitbox_t * box)
 {
-    GHashTableIter iter;
-    gpointer key, value;
-
-    g_hash_table_iter_init(&iter, box->need_disk_write);
-    if(g_hash_table_iter_next(&iter, &key, &value))
+    bitbox_need_disk_write_set_t::iterator it = box->need_disk_write->begin();
+    if(it != box->need_disk_write->end())
     {
-        bitarray_save_to_disk((bitarray_t *)key);
-        g_hash_table_remove(box->need_disk_write, key);
+        bitarray_save_to_disk(*it);
+        box->need_disk_write->erase(it);
     }
-    DEBUG("wrote one to disk. %d left\n", g_hash_table_size(box->need_disk_write));
+    DEBUG("wrote one to disk. %lu left\n", box->need_disk_write->size());
 }
 
 void bitbox_diskwrite_single_step(bitbox_t * box)
 {
-    if(g_hash_table_size(box->need_disk_write))
+    if(!box->need_disk_write->empty())
         bitbox_write_one_to_disk(box);
 }
 

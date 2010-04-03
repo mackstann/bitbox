@@ -8,6 +8,7 @@
 #include <string.h>
 #include <glib.h>
 #include <google/sparse_hash_map>
+#include <google/sparse_hash_set>
 #include <map>
 
 #define BITBOX_ITEM_LIMIT       1500
@@ -21,7 +22,7 @@ unsigned int MurmurHash2(const void * key, int len, unsigned int seed);
 #define MurmurHash MurmurHash2
 #endif
 
-struct bitbox_hasher
+struct bitbox_str_hasher
 {
     size_t operator()(const char * key) const
     {
@@ -54,8 +55,9 @@ typedef struct {
 
 // bitbox
 
-typedef google::sparse_hash_map<const char *, bitarray_t *, bitbox_hasher, eqstr> bitbox_hash_t;
+typedef google::sparse_hash_map<const char *, bitarray_t *, bitbox_str_hasher, eqstr> bitbox_hash_t;
 typedef std::multimap<const int64_t, char *> bitbox_lru_map_t;
+typedef google::sparse_hash_set<bitarray_t *> bitbox_need_disk_write_set_t;
 
 typedef struct {
     // the main way we access data.  the key is an arbitrary string and the
@@ -68,9 +70,9 @@ typedef struct {
     bitbox_lru_map_t lru;
 
     // this is to prevent having memory get too out of sync with the disk,
-    // causing lots of data loss in case of an unclean shutdown.  it is used as
-    // a set.  the key is the bitbox_t* and the value is a dummy.
-    GHashTable * need_disk_write;
+    // causing lots of data loss in case of an unclean shutdown.  it stores
+    // a set of items of the type bitarray_t*
+    bitbox_need_disk_write_set_t * need_disk_write;
 } bitbox_t;
 
 bitbox_t * bitbox_new(void);

@@ -295,20 +295,18 @@ gint timestamp_compare(gconstpointer ap, gconstpointer bp)
 
 Bitbox::Bitbox()
 {
-    this->hash = new Bitbox::hash_t(10, bitbox_str_hasher(), eqstr());
-    this->hash->set_deleted_key("");
+    this->hash.set_deleted_key("");
 
-    this->need_disk_write = new Bitbox::need_disk_write_set_t();
-    this->need_disk_write->set_deleted_key(NULL);
+    this->need_disk_write.set_deleted_key(NULL);
 }
 
 Bitbox::~Bitbox()
 {
-    Bitbox::hash_t::iterator it = this->hash->begin();
-    for(; it != this->hash->end(); ++it)
+    Bitbox::hash_t::iterator it = this->hash.begin();
+    for(; it != this->hash.end(); ++it)
     {
         bitarray_free(it->second);
-        this->hash->erase(it);
+        this->hash.erase(it);
     }
 }
 
@@ -341,8 +339,8 @@ void Bitbox::update_key_in_lru(const char * key, int64_t old_timestamp, int64_t 
 
 bitarray_t * Bitbox::find_array_in_memory(const char * key)
 {
-    Bitbox::hash_t::iterator it = this->hash->find(key);
-    return it == this->hash->end() ? NULL : it->second;
+    Bitbox::hash_t::iterator it = this->hash.find(key);
+    return it == this->hash.end() ? NULL : it->second;
 }
 
 bitarray_t * Bitbox::find_array_on_disk(const char * key)
@@ -359,7 +357,7 @@ bitarray_t * Bitbox::find_array_on_disk(const char * key)
 
 void Bitbox::add_array_to_hash(bitarray_t * b)
 {
-    (*this->hash)[b->key] = b;
+    this->hash[b->key] = b;
     this->update_key_in_lru(b->key, 0, b->last_access);
 }
 
@@ -392,7 +390,7 @@ void Bitbox::downsize_if_angry()
     // ok, that's it.  even if really busy, bring memory usage down below the
     // "angry" limit before proceeding.  we'll never be very far past the
     // limit, so the while loop isn't as scary as it might look.
-    while(this->hash->size() >= BITBOX_ITEM_PEAK_LIMIT && this->lru.size())
+    while(this->hash.size() >= BITBOX_ITEM_PEAK_LIMIT && this->lru.size())
         this->downsize_single_step(BITBOX_ITEM_PEAK_LIMIT);
 }
 
@@ -405,7 +403,7 @@ void Bitbox::set_bit_nolookup(bitarray_t * b, int64_t bit)
 
     this->update_key_in_lru(b->key, old_timestamp, b->last_access);
 
-    this->need_disk_write->insert(b);
+    this->need_disk_write.insert(b);
 }
 
 void Bitbox::set_bit(const char * key, int64_t bit)
@@ -449,7 +447,7 @@ static void bitarray_save_to_disk(bitarray_t * b)
 
 void Bitbox::banish_oldest_item_to_disk()
 {
-    assert(this->hash->size() == this->lru.size());
+    assert(this->hash.size() == this->lru.size());
     Bitbox::lru_map_t::iterator it = this->lru.begin();
 
     if(it == this->lru.end())
@@ -461,8 +459,8 @@ void Bitbox::banish_oldest_item_to_disk()
     bitarray_t * b = this->find_array_in_memory(key);
     assert(b);
     bitarray_save_to_disk(b);
-    this->hash->erase(key);
-    this->need_disk_write->erase(b);
+    this->hash.erase(key);
+    this->need_disk_write.erase(b);
 
     bitarray_free(b);
     free(key);
@@ -473,18 +471,18 @@ void Bitbox::downsize_single_step(int64_t item_limit)
     //DEBUG("************ box too big? %d\n", g_hash_table_size(box->hash) >= item_limit);
     //DEBUG("************ lru size? %d\n", box->lru.size());
     //DEBUG("************ hash size? %d\n", g_hash_table_size(box->hash));
-    if(this->hash->size() >= (Bitbox::hash_t::size_type)item_limit)
+    if(this->hash.size() >= (Bitbox::hash_t::size_type)item_limit)
         this->banish_oldest_item_to_disk();
 }
 
 void Bitbox::write_one_to_disk()
 {
-    Bitbox::need_disk_write_set_t::iterator it = this->need_disk_write->begin();
-    if(it != this->need_disk_write->end())
+    Bitbox::need_disk_write_set_t::iterator it = this->need_disk_write.begin();
+    if(it != this->need_disk_write.end())
     {
         bitarray_save_to_disk(*it);
-        this->need_disk_write->erase(it);
-        DEBUG("wrote one to disk. %lu left\n", this->need_disk_write->size());
+        this->need_disk_write.erase(it);
+        DEBUG("wrote one to disk. %lu left\n", this->need_disk_write.size());
     }
 }
 
@@ -492,11 +490,11 @@ bool Bitbox::run_maintenance_step()
 {
     this->downsize_single_step(BITBOX_ITEM_LIMIT);
     this->write_one_to_disk();
-    return this->hash->size() >= BITBOX_ITEM_LIMIT || !this->need_disk_write->empty();
+    return this->hash.size() >= BITBOX_ITEM_LIMIT || !this->need_disk_write.empty();
 }
 
 void Bitbox::shutdown()
 {
-    while(!this->need_disk_write->empty())
+    while(!this->need_disk_write.empty())
         this->write_one_to_disk();
 }

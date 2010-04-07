@@ -41,26 +41,22 @@ class BitboxHandler : virtual public BitboxIf {
             if(!maintenance_running)
             {
                 fprintf(stderr, "adding the maintenance callback.\n");
-                g_idle_add(idle_maintenance, this->box);
+                g_idle_add(idle_maintenance, &this->box);
                 maintenance_running = true;
             }
         }
     public:
-        Bitbox * box;
-
-        BitboxHandler() {
-            this->box = new Bitbox();
-        }
+        Bitbox box;
 
         bool get_bit(const std::string& key, const int64_t bit)
         {
-            return this->box->get_bit(key.c_str(), bit);
+            return this->box.get_bit(key.c_str(), bit);
         }
 
         void set_bit(const std::string& key, const int64_t bit)
         {
             this->schedule_maintenance();
-            this->box->set_bit(key.c_str(), bit);
+            this->box.set_bit(key.c_str(), bit);
         }
 
         void set_bits(const std::string& key, const std::set<int64_t> & bits)
@@ -71,15 +67,14 @@ class BitboxHandler : virtual public BitboxIf {
             int64_t * abits = (int64_t *)malloc(bits.size() * sizeof(int64_t));
             std::copy(bits.begin(), bits.end(), abits);
 
-            this->box->set_bits(key.c_str(), abits, bits.size());
+            this->box.set_bits(key.c_str(), abits, bits.size());
 
             free(abits);
         }
 
         void shutdown()
         {
-            this->box->shutdown();
-            delete this->box;
+            this->box.shutdown();
         }
 };
 

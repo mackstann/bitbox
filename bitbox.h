@@ -63,7 +63,7 @@ private:
 
     // the main way we access data.  the key is an arbitrary string and the
     // value is a bitarray_t.
-    hash_t * hash;
+    hash_t hash;
 
     // we use this to implement efficient dump-to-disk behavior to keep memory
     // usage reasonable.  the key is a timestamp and the value corresponds to a
@@ -73,7 +73,7 @@ private:
     // this is to prevent having memory get too out of sync with the disk,
     // causing lots of data loss in case of an unclean shutdown.  it stores
     // a set of items of the type bitarray_t*
-    need_disk_write_set_t * need_disk_write;
+    need_disk_write_set_t need_disk_write;
 
 public:
     Bitbox();

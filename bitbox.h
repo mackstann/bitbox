@@ -111,7 +111,6 @@ private:
     void write_one_to_disk();
 
     bitarray_t * find_array_in_memory(const char * key);
-    bitarray_t * find_array_on_disk  (const char * key);
 };
 
 #endif

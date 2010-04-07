@@ -205,6 +205,27 @@ static void bitarray_load_frozen(const char * key, uint8_t ** buffer, int64_t * 
     g_free(contents);
 }
 
+static void bitarray_save_to_disk(bitarray_t * b)
+{
+    uint8_t * buffer;
+    int64_t bufsize;
+    int64_t uncompressed_size;
+    uint8_t is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
+    bitarray_save_frozen(b->key, buffer, bufsize, uncompressed_size, is_compressed);
+}
+
+static bitarray_t * bitarray_find_array_on_disk(const char * key)
+{
+    uint8_t is_compressed, * buffer;
+    int64_t bufsize, uncompressed_size;
+    bitarray_load_frozen(key, &buffer, &bufsize, &uncompressed_size, &is_compressed);
+
+    if(!buffer)
+        return NULL;
+
+    return bitarray_thaw(key, buffer, bufsize, uncompressed_size, is_compressed);
+}
+
 static void bitarray_grow_up(bitarray_t * b, int64_t size)
 {
     uint8_t * new_array = (uint8_t *)calloc(size, 1);
@@ -343,18 +364,6 @@ bitarray_t * Bitbox::find_array_in_memory(const char * key)
     return it == this->hash.end() ? NULL : it->second;
 }
 
-bitarray_t * Bitbox::find_array_on_disk(const char * key)
-{
-    uint8_t is_compressed, * buffer;
-    int64_t bufsize, uncompressed_size;
-    bitarray_load_frozen(key, &buffer, &bufsize, &uncompressed_size, &is_compressed);
-
-    if(!buffer)
-        return NULL;
-
-    return bitarray_thaw(key, buffer, bufsize, uncompressed_size, is_compressed);
-}
-
 void Bitbox::add_array_to_hash(bitarray_t * b)
 {
     this->hash[b->key] = b;
@@ -367,7 +376,7 @@ bitarray_t * Bitbox::find_array(const char * key)
     if(b)
         return b;
 
-    b = this->find_array_on_disk(key);
+    b = bitarray_find_array_on_disk(key);
     if(b)
         this->add_array_to_hash(b);
 
@@ -426,15 +435,6 @@ int Bitbox::get_bit(const char * key, int64_t bit)
     this->update_key_in_lru(key, old_timestamp, b->last_access);
 
     return retval;
-}
-
-static void bitarray_save_to_disk(bitarray_t * b)
-{
-    uint8_t * buffer;
-    int64_t bufsize;
-    int64_t uncompressed_size;
-    uint8_t is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
-    bitarray_save_frozen(b->key, buffer, bufsize, uncompressed_size, is_compressed);
 }
 
 void Bitbox::banish_oldest_item_to_disk()

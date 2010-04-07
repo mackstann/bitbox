@@ -293,42 +293,34 @@ gint timestamp_compare(gconstpointer ap, gconstpointer bp)
     return a == b ? 0 : (a < b ? -1 : 1);
 }
 
-bitbox_t * bitbox_new(void)
+Bitbox::Bitbox()
 {
-    bitbox_t * box = (bitbox_t *)malloc(sizeof(bitbox_t));
-    assert(box);
+    this->hash = new Bitbox::hash_t(10, bitbox_str_hasher(), eqstr());
+    this->hash->set_deleted_key("");
 
-    box->hash = new bitbox_hash_t(10, bitbox_str_hasher(), eqstr());
-    box->hash->set_deleted_key("");
-
-    box->need_disk_write = new bitbox_need_disk_write_set_t();
-    box->need_disk_write->set_deleted_key(NULL);
-
-    box->lru = bitbox_lru_map_t();
-
-    return box;
+    this->need_disk_write = new Bitbox::need_disk_write_set_t();
+    this->need_disk_write->set_deleted_key(NULL);
 }
 
-void bitbox_free(bitbox_t * box)
+Bitbox::~Bitbox()
 {
-    bitbox_hash_t::iterator it = box->hash->begin();
-    for(; it != box->hash->end(); ++it)
+    Bitbox::hash_t::iterator it = this->hash->begin();
+    for(; it != this->hash->end(); ++it)
     {
         bitarray_free(it->second);
-        box->hash->erase(it);
+        this->hash->erase(it);
     }
-    free(box);
 }
 
-static void bitbox_update_key_in_lru(bitbox_t * box, const char * key, int64_t old_timestamp, int64_t new_timestamp)
+void Bitbox::update_key_in_lru(const char * key, int64_t old_timestamp, int64_t new_timestamp)
 {
     assert(new_timestamp);
     if(old_timestamp)
     {
         // multiple keys may have the same last-modified time.  so scan through
         // any siblings and find the one we're looking for.
-        bitbox_lru_map_t::iterator it = box->lru.find(old_timestamp);
-        bitbox_lru_map_t::iterator upper_bound = box->lru.upper_bound(old_timestamp);
+        Bitbox::lru_map_t::iterator it = this->lru.find(old_timestamp);
+        Bitbox::lru_map_t::iterator upper_bound = this->lru.upper_bound(old_timestamp);
 
         for(; it != upper_bound; it++)
         {
@@ -336,24 +328,24 @@ static void bitbox_update_key_in_lru(bitbox_t * box, const char * key, int64_t o
             {
                 // delete it
                 free(it->second);
-                box->lru.erase(it);
+                this->lru.erase(it);
                 break;
             }
         }
     }
 
     // and add the key with its new timestamp
-    box->lru.insert(bitbox_lru_map_t::value_type(new_timestamp, strdup(key)));
+    this->lru.insert(Bitbox::lru_map_t::value_type(new_timestamp, strdup(key)));
     // could be smarter about reusing the key instead of always freeing & re-copying
 }
 
-static bitarray_t * bitbox_find_array_in_memory(bitbox_t * box, const char * key)
+bitarray_t * Bitbox::find_array_in_memory(const char * key)
 {
-    bitbox_hash_t::iterator it = box->hash->find(key);
-    return it == box->hash->end() ? NULL : it->second;
+    Bitbox::hash_t::iterator it = this->hash->find(key);
+    return it == this->hash->end() ? NULL : it->second;
 }
 
-static bitarray_t * bitbox_find_array_on_disk(bitbox_t * box, const char * key)
+bitarray_t * Bitbox::find_array_on_disk(const char * key)
 {
     uint8_t is_compressed, * buffer;
     int64_t bufsize, uncompressed_size;
@@ -365,75 +357,75 @@ static bitarray_t * bitbox_find_array_on_disk(bitbox_t * box, const char * key)
     return bitarray_thaw(key, buffer, bufsize, uncompressed_size, is_compressed);
 }
 
-static void bitbox_add_array_to_hash(bitbox_t * box, bitarray_t * b)
+void Bitbox::add_array_to_hash(bitarray_t * b)
 {
-    (*box->hash)[b->key] = b;
-    bitbox_update_key_in_lru(box, b->key, 0, b->last_access);
+    (*this->hash)[b->key] = b;
+    this->update_key_in_lru(b->key, 0, b->last_access);
 }
 
-bitarray_t * bitbox_find_array(bitbox_t * box, const char * key)
+bitarray_t * Bitbox::find_array(const char * key)
 {
-    bitarray_t * b = bitbox_find_array_in_memory(box, key);
+    bitarray_t * b = this->find_array_in_memory(key);
     if(b)
         return b;
 
-    b = bitbox_find_array_on_disk(box, key);
+    b = this->find_array_on_disk(key);
     if(b)
-        bitbox_add_array_to_hash(box, b);
+        this->add_array_to_hash(b);
 
     return b;
 }
 
-bitarray_t * bitbox_find_or_create_array(bitbox_t * box, const char * key)
+bitarray_t * Bitbox::find_or_create_array(const char * key)
 {
-    bitarray_t * b = bitbox_find_array(box, key);
+    bitarray_t * b = Bitbox::find_array(key);
     if(!b)
     {
         b = bitarray_new(key, -1);
-        bitbox_add_array_to_hash(box, b);
+        this->add_array_to_hash(b);
     }
     return b;
 }
 
-void bitbox_downsize_if_angry(bitbox_t * box)
+void Bitbox::downsize_if_angry()
 {
     // ok, that's it.  even if really busy, bring memory usage down below the
     // "angry" limit before proceeding.  we'll never be very far past the
     // limit, so the while loop isn't as scary as it might look.
-    while(box->hash->size() >= BITBOX_ITEM_PEAK_LIMIT && box->lru.size())
-        bitbox_downsize_single_step(box, BITBOX_ITEM_PEAK_LIMIT);
+    while(this->hash->size() >= BITBOX_ITEM_PEAK_LIMIT && this->lru.size())
+        this->downsize_single_step(BITBOX_ITEM_PEAK_LIMIT);
 }
 
-static void bitbox_set_bit_nolookup(bitbox_t * box, bitarray_t * b, int64_t bit)
+void Bitbox::set_bit_nolookup(bitarray_t * b, int64_t bit)
 {
     assert(b);
     int64_t old_timestamp = b->last_access;
 
     bitarray_set_bit(b, bit);
 
-    bitbox_update_key_in_lru(box, b->key, old_timestamp, b->last_access);
+    this->update_key_in_lru(b->key, old_timestamp, b->last_access);
 
-    box->need_disk_write->insert(b);
+    this->need_disk_write->insert(b);
 }
 
-void bitbox_set_bit(bitbox_t * box, const char * key, int64_t bit)
+void Bitbox::set_bit(const char * key, int64_t bit)
 {
-    bitarray_t * b = bitbox_find_or_create_array(box, key);
-    bitbox_set_bit_nolookup(box, b, bit);
-    bitbox_downsize_if_angry(box);
+    bitarray_t * b = Bitbox::find_or_create_array(key);
+    this->set_bit_nolookup(b, bit);
+    this->downsize_if_angry();
 }
 
-void bitbox_set_bits(bitbox_t * box, const char * key, int64_t * bits, int64_t nbits)
+void Bitbox::set_bits(const char * key, int64_t * bits, int64_t nbits)
 {
-    bitarray_t * b = bitbox_find_or_create_array(box, key);
+    bitarray_t * b = this->find_or_create_array(key);
     for(int64_t i = 0; i < nbits; i++)
-        bitbox_set_bit_nolookup(box, b, bits[i]);
-    bitbox_downsize_if_angry(box);
+        this->set_bit_nolookup(b, bits[i]);
+    this->downsize_if_angry();
 }
 
-int bitbox_get_bit(bitbox_t * box, const char * key, int64_t bit)
+int Bitbox::get_bit(const char * key, int64_t bit)
 {
-    bitarray_t * b = bitbox_find_array(box, key);
+    bitarray_t * b = this->find_array(key);
 
     if(!b)
         return 0;
@@ -441,7 +433,7 @@ int bitbox_get_bit(bitbox_t * box, const char * key, int64_t bit)
     int64_t old_timestamp = b->last_access;
     int retval = bitarray_get_bit(b, bit);
 
-    bitbox_update_key_in_lru(box, key, old_timestamp, b->last_access);
+    this->update_key_in_lru(key, old_timestamp, b->last_access);
 
     return retval;
 }
@@ -455,64 +447,64 @@ static void bitarray_save_to_disk(bitarray_t * b)
     bitarray_save_frozen(b->key, buffer, bufsize, uncompressed_size, is_compressed);
 }
 
-static void bitbox_banish_oldest_item_to_disk(bitbox_t * box)
+void Bitbox::banish_oldest_item_to_disk()
 {
-    assert(box->hash->size() == box->lru.size());
-    bitbox_lru_map_t::iterator it = box->lru.begin();
+    assert(this->hash->size() == this->lru.size());
+    Bitbox::lru_map_t::iterator it = this->lru.begin();
     char * key = it->second;
-    box->lru.erase(it);
+    this->lru.erase(it);
 
-    bitarray_t * b = bitbox_find_array_in_memory(box, key);
+    bitarray_t * b = this->find_array_in_memory(key);
     assert(b);
     bitarray_save_to_disk(b);
-    box->hash->erase(key);
-    box->need_disk_write->erase(b);
+    this->hash->erase(key);
+    this->need_disk_write->erase(b);
 
     bitarray_free(b);
     free(key);
 }
 
-void bitbox_downsize_single_step(bitbox_t * box, int64_t item_limit)
+void Bitbox::downsize_single_step(int64_t item_limit)
 {
     //DEBUG("************ box too big? %d\n", g_hash_table_size(box->hash) >= item_limit);
     //DEBUG("************ lru size? %d\n", box->lru.size());
     //DEBUG("************ hash size? %d\n", g_hash_table_size(box->hash));
-    if(box->hash->size() >= (bitbox_hash_t::size_type)item_limit)
-        bitbox_banish_oldest_item_to_disk(box);
+    if(this->hash->size() >= (Bitbox::hash_t::size_type)item_limit)
+        this->banish_oldest_item_to_disk();
 }
 
-int bitbox_needs_disk_write(bitbox_t * box)
+int Bitbox::needs_disk_write()
 {
-    return box->need_disk_write->empty() ? 0 : 1;
+    return this->need_disk_write->empty() ? 0 : 1;
 }
 
-void bitbox_write_one_to_disk(bitbox_t * box)
+void Bitbox::write_one_to_disk()
 {
-    bitbox_need_disk_write_set_t::iterator it = box->need_disk_write->begin();
-    if(it != box->need_disk_write->end())
+    Bitbox::need_disk_write_set_t::iterator it = this->need_disk_write->begin();
+    if(it != this->need_disk_write->end())
     {
         bitarray_save_to_disk(*it);
-        box->need_disk_write->erase(it);
+        this->need_disk_write->erase(it);
     }
-    DEBUG("wrote one to disk. %lu left\n", box->need_disk_write->size());
+    DEBUG("wrote one to disk. %lu left\n", this->need_disk_write->size());
 }
 
-void bitbox_diskwrite_single_step(bitbox_t * box)
+void Bitbox::diskwrite_single_step()
 {
-    if(!box->need_disk_write->empty())
-        bitbox_write_one_to_disk(box);
+    if(!this->need_disk_write->empty())
+        this->write_one_to_disk();
 }
 
-void bitbox_shutdown(bitbox_t * box)
+void Bitbox::shutdown()
 {
-    while(bitbox_needs_disk_write(box))
-        bitbox_write_one_to_disk(box);
+    while(this->needs_disk_write())
+        this->write_one_to_disk();
 }
 
-int bitbox_downsize_needed(bitbox_t * box)
+int Bitbox::downsize_needed()
 {
-    DEBUG("size is %d and angry limit is %d\n", (int)box->hash->size(), BITBOX_ITEM_PEAK_LIMIT);
+    DEBUG("size is %d and angry limit is %d\n", (int)this->hash->size(), BITBOX_ITEM_PEAK_LIMIT);
     //if( g_hash_table_size(box->hash) >= BITBOX_ITEM_LIMIT && box->lru.size())
         //DEBUG("downsize needed.\n");
-    return box->hash->size() >= BITBOX_ITEM_LIMIT && box->lru.size();
+    return this->hash->size() >= BITBOX_ITEM_LIMIT && this->lru.size();
 }

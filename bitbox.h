@@ -55,41 +55,54 @@ typedef struct {
 
 // bitbox
 
-typedef google::sparse_hash_map<const char *, bitarray_t *, bitbox_str_hasher, eqstr> bitbox_hash_t;
-typedef std::multimap<const int64_t, char *> bitbox_lru_map_t;
-typedef google::sparse_hash_set<bitarray_t *> bitbox_need_disk_write_set_t;
+class Bitbox {
+private:
+    typedef google::sparse_hash_map<const char *, bitarray_t *, bitbox_str_hasher, eqstr> hash_t;
+    typedef std::multimap<const int64_t, char *> lru_map_t;
+    typedef google::sparse_hash_set<bitarray_t *> need_disk_write_set_t;
 
-typedef struct {
     // the main way we access data.  the key is an arbitrary string and the
     // value is a bitarray_t.
-    bitbox_hash_t * hash;
+    hash_t * hash;
 
     // we use this to implement efficient dump-to-disk behavior to keep memory
     // usage reasonable.  the key is a timestamp and the value corresponds to a
     // key in the hash.
-    bitbox_lru_map_t lru;
+    lru_map_t lru;
 
     // this is to prevent having memory get too out of sync with the disk,
     // causing lots of data loss in case of an unclean shutdown.  it stores
     // a set of items of the type bitarray_t*
-    bitbox_need_disk_write_set_t * need_disk_write;
-} bitbox_t;
+    need_disk_write_set_t * need_disk_write;
 
-bitbox_t * bitbox_new(void);
-void       bitbox_free(bitbox_t * box);
-void bitbox_shutdown(bitbox_t * box);
+public:
+    Bitbox();
+    ~Bitbox();
+    void shutdown();
 
-int  bitbox_get_bit (bitbox_t * box, const char * key, int64_t bit);
-void bitbox_set_bit (bitbox_t * box, const char * key, int64_t bit);
-void bitbox_set_bits(bitbox_t * box, const char * key, int64_t * bits, int64_t nbits);
+    int  get_bit (const char * key, int64_t bit);
+    void set_bit (const char * key, int64_t bit);
+    void set_bits(const char * key, int64_t * bits, int64_t nbits);
 
-void bitbox_downsize_single_step(bitbox_t * box, int64_t memory_limit);
-int  bitbox_downsize_needed     (bitbox_t * box);
+    void downsize_single_step(int64_t memory_limit);
+    int  downsize_needed();
 
-void bitbox_diskwrite_single_step(bitbox_t * box);
-int  bitbox_needs_disk_write     (bitbox_t * box);
+    void diskwrite_single_step();
+    int  needs_disk_write();
 
-bitarray_t * bitbox_find_array          (bitbox_t * box, const char * key);
-bitarray_t * bitbox_find_or_create_array(bitbox_t * box, const char * key);
+    bitarray_t * find_array          (const char * key);
+    bitarray_t * find_or_create_array(const char * key);
+
+private:
+    void update_key_in_lru(const char * key, int64_t old_timestamp, int64_t new_timestamp);
+    void add_array_to_hash(bitarray_t * b);
+    void downsize_if_angry();
+    void set_bit_nolookup(bitarray_t * b, int64_t bit);
+    void banish_oldest_item_to_disk();
+    void write_one_to_disk();
+
+    bitarray_t * find_array_in_memory(const char * key);
+    bitarray_t * find_array_on_disk  (const char * key);
+};
 
 #endif

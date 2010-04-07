@@ -27,9 +27,9 @@ using boost::shared_ptr;
 static int downsize_running = 0;
 gboolean idle_downsize(gpointer data)
 {
-    bitbox_t * box = (bitbox_t *)data;
-    bitbox_downsize_single_step(box, BITBOX_ITEM_LIMIT);
-    downsize_running = bitbox_downsize_needed(box);
+    Bitbox * box = static_cast<Bitbox *>(data);
+    box->downsize_single_step(BITBOX_ITEM_LIMIT);
+    downsize_running = box->downsize_needed();
     if(!downsize_running)
         fprintf(stderr, "finished downsizing\n");
     return downsize_running ? TRUE : FALSE;
@@ -38,9 +38,9 @@ gboolean idle_downsize(gpointer data)
 static int diskwrite_running = 0;
 gboolean idle_diskwrite(gpointer data)
 {
-    bitbox_t * box = (bitbox_t *)data;
-    bitbox_diskwrite_single_step(box);
-    diskwrite_running = bitbox_needs_disk_write(box);
+    Bitbox * box = static_cast<Bitbox *>(data);
+    box->diskwrite_single_step();
+    diskwrite_running = box->needs_disk_write();
     if(!diskwrite_running)
         fprintf(stderr, "finished disk writes\n");
     return diskwrite_running ? TRUE : FALSE;
@@ -67,22 +67,22 @@ class BitboxHandler : virtual public BitboxIf {
             }
         }
     public:
-        bitbox_t * box;
+        Bitbox * box;
 
         BitboxHandler() {
-            this->box = bitbox_new();
+            this->box = new Bitbox();
         }
 
         bool get_bit(const std::string& key, const int64_t bit)
         {
-            return bitbox_get_bit(this->box, key.c_str(), bit);
+            return this->box->get_bit(key.c_str(), bit);
         }
 
         void set_bit(const std::string& key, const int64_t bit)
         {
             this->schedule_downsize();
             this->schedule_diskwrite();
-            bitbox_set_bit(this->box, key.c_str(), bit);
+            this->box->set_bit(key.c_str(), bit);
         }
 
         void set_bits(const std::string& key, const std::set<int64_t> & bits)
@@ -94,15 +94,15 @@ class BitboxHandler : virtual public BitboxIf {
             int64_t * abits = (int64_t *)malloc(bits.size() * sizeof(int64_t));
             std::copy(bits.begin(), bits.end(), abits);
 
-            bitbox_set_bits(this->box, key.c_str(), abits, bits.size());
+            this->box->set_bits(key.c_str(), abits, bits.size());
 
             free(abits);
         }
 
         void shutdown()
         {
-            bitbox_shutdown(this->box);
-            bitbox_free(this->box);
+            this->box->shutdown();
+            delete this->box;
         }
 };
 

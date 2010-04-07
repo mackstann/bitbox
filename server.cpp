@@ -62,14 +62,7 @@ class BitboxHandler : virtual public BitboxIf {
         void set_bits(const std::string& key, const std::set<int64_t> & bits)
         {
             this->schedule_maintenance();
-            // convert to a plain c array
-            std::vector<int64_t> vbits;
-            int64_t * abits = (int64_t *)malloc(bits.size() * sizeof(int64_t));
-            std::copy(bits.begin(), bits.end(), abits);
-
-            this->box.set_bits(key.c_str(), abits, bits.size());
-
-            free(abits);
+            this->box.set_bits(key.c_str(), bits.begin(), bits.end());
         }
 
         void shutdown()

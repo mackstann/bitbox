@@ -82,7 +82,15 @@ public:
 
     int  get_bit (const char * key, int64_t bit);
     void set_bit (const char * key, int64_t bit);
-    void set_bits(const char * key, int64_t * bits, int64_t nbits);
+
+    template<typename ConstIterator>
+    void set_bits(const char * key, ConstIterator begin, ConstIterator end)
+    {
+        bitarray_t * b = this->find_or_create_array(key);
+        for(ConstIterator it = begin; it != end; ++it)
+            this->set_bit_nolookup(b, *it);
+        this->downsize_if_angry();
+    }
 
 private:
     void downsize_single_step(int64_t memory_limit);

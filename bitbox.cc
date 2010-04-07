@@ -413,14 +413,6 @@ void Bitbox::set_bit(const char * key, int64_t bit)
     this->downsize_if_angry();
 }
 
-void Bitbox::set_bits(const char * key, int64_t * bits, int64_t nbits)
-{
-    bitarray_t * b = this->find_or_create_array(key);
-    for(int64_t i = 0; i < nbits; i++)
-        this->set_bit_nolookup(b, bits[i]);
-    this->downsize_if_angry();
-}
-
 int Bitbox::get_bit(const char * key, int64_t bit)
 {
     bitarray_t * b = this->find_array(key);

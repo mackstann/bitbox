@@ -84,14 +84,15 @@ public:
     void set_bit (const char * key, int64_t bit);
     void set_bits(const char * key, int64_t * bits, int64_t nbits);
 
+private:
     void downsize_single_step(int64_t memory_limit);
-    int  downsize_needed();
-
     void diskwrite_single_step();
-    int  needs_disk_write();
 
+public:
     bitarray_t * find_array          (const char * key);
     bitarray_t * find_or_create_array(const char * key);
+
+    bool run_maintenance_step();
 
 private:
     void update_key_in_lru(const char * key, int64_t old_timestamp, int64_t new_timestamp);

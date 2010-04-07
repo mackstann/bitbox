@@ -451,6 +451,10 @@ void Bitbox::banish_oldest_item_to_disk()
 {
     assert(this->hash->size() == this->lru.size());
     Bitbox::lru_map_t::iterator it = this->lru.begin();
+
+    if(it == this->lru.end())
+        return;
+
     char * key = it->second;
     this->lru.erase(it);
 
@@ -473,11 +477,6 @@ void Bitbox::downsize_single_step(int64_t item_limit)
         this->banish_oldest_item_to_disk();
 }
 
-int Bitbox::needs_disk_write()
-{
-    return this->need_disk_write->empty() ? 0 : 1;
-}
-
 void Bitbox::write_one_to_disk()
 {
     Bitbox::need_disk_write_set_t::iterator it = this->need_disk_write->begin();
@@ -485,26 +484,19 @@ void Bitbox::write_one_to_disk()
     {
         bitarray_save_to_disk(*it);
         this->need_disk_write->erase(it);
+        DEBUG("wrote one to disk. %lu left\n", this->need_disk_write->size());
     }
-    DEBUG("wrote one to disk. %lu left\n", this->need_disk_write->size());
 }
 
-void Bitbox::diskwrite_single_step()
+bool Bitbox::run_maintenance_step()
 {
-    if(!this->need_disk_write->empty())
-        this->write_one_to_disk();
+    this->downsize_single_step(BITBOX_ITEM_LIMIT);
+    this->write_one_to_disk();
+    return this->hash->size() >= BITBOX_ITEM_LIMIT || !this->need_disk_write->empty();
 }
 
 void Bitbox::shutdown()
 {
-    while(this->needs_disk_write())
+    while(!this->need_disk_write->empty())
         this->write_one_to_disk();
-}
-
-int Bitbox::downsize_needed()
-{
-    DEBUG("size is %d and angry limit is %d\n", (int)this->hash->size(), BITBOX_ITEM_PEAK_LIMIT);
-    //if( g_hash_table_size(box->hash) >= BITBOX_ITEM_LIMIT && box->lru.size())
-        //DEBUG("downsize needed.\n");
-    return this->hash->size() >= BITBOX_ITEM_LIMIT && this->lru.size();
 }

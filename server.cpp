@@ -24,46 +24,25 @@ using namespace ::apache::thrift::server;
 
 using boost::shared_ptr;
 
-static int downsize_running = 0;
-gboolean idle_downsize(gpointer data)
+static bool maintenance_running = false;
+gboolean idle_maintenance(gpointer data)
 {
     Bitbox * box = static_cast<Bitbox *>(data);
-    box->downsize_single_step(BITBOX_ITEM_LIMIT);
-    downsize_running = box->downsize_needed();
-    if(!downsize_running)
-        fprintf(stderr, "finished downsizing\n");
-    return downsize_running ? TRUE : FALSE;
-}
-
-static int diskwrite_running = 0;
-gboolean idle_diskwrite(gpointer data)
-{
-    Bitbox * box = static_cast<Bitbox *>(data);
-    box->diskwrite_single_step();
-    diskwrite_running = box->needs_disk_write();
-    if(!diskwrite_running)
-        fprintf(stderr, "finished disk writes\n");
-    return diskwrite_running ? TRUE : FALSE;
+    bool more_maintenance_needed = maintenance_running = box->run_maintenance_step();
+    if(!more_maintenance_needed)
+        fprintf(stderr, "done with maintenance for now.\n");
+    return more_maintenance_needed ? TRUE : FALSE;
 }
 
 class BitboxHandler : virtual public BitboxIf {
     private:
-        void schedule_downsize()
+        void schedule_maintenance()
         {
-            if(!downsize_running)
+            if(!maintenance_running)
             {
-                fprintf(stderr, "ADD THE DOWNSIZE CALLBACK\n");
-                g_idle_add(idle_downsize, this->box);
-                downsize_running = 1;
-            }
-        }
-        void schedule_diskwrite()
-        {
-            if(!diskwrite_running)
-            {
-                fprintf(stderr, "ADD THE DISKWRITE CALLBACK\n");
-                g_idle_add(idle_diskwrite, this->box);
-                diskwrite_running = 1;
+                fprintf(stderr, "adding the maintenance callback.\n");
+                g_idle_add(idle_maintenance, this->box);
+                maintenance_running = true;
             }
         }
     public:
@@ -80,15 +59,13 @@ class BitboxHandler : virtual public BitboxIf {
 
         void set_bit(const std::string& key, const int64_t bit)
         {
-            this->schedule_downsize();
-            this->schedule_diskwrite();
+            this->schedule_maintenance();
             this->box->set_bit(key.c_str(), bit);
         }
 
         void set_bits(const std::string& key, const std::set<int64_t> & bits)
         {
-            this->schedule_downsize();
-            this->schedule_diskwrite();
+            this->schedule_maintenance();
             // convert to a plain c array
             std::vector<int64_t> vbits;
             int64_t * abits = (int64_t *)malloc(bits.size() * sizeof(int64_t));

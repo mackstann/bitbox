@@ -19,7 +19,7 @@ transport.open()
 
 prefix = str('%0.12f' % random.random())
 
-for i in range(30000000):
+for i in xrange(30000000):
     if i % 10000 == 0:
         print i
     key = prefix + str(i)

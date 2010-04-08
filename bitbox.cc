@@ -99,6 +99,12 @@ static void bitarray_dump(bitarray_t * b)
 }
 #endif
 
+SerializedBitarray::~SerializedBitarray()
+{
+    if(this->buffer)
+        free(this->buffer);
+}
+
 SerializedBitarray::SerializedBitarray(bitarray_t * b)
     : b(b), key(b->key), buffer(NULL), bufsize(0), uncompressed_size(0), is_compressed(0)
 {
@@ -156,7 +162,6 @@ SerializedBitarray::SerializedBitarray(const char * key, uint8_t * buffer, int64
         this->b->array = (uint8_t *)malloc(b->size);
         memcpy(this->b->array, this->buffer + sizeof(int64_t)*2, this->b->size);
     }
-    free(this->buffer);
 }
 
 // XXX: g_file_set_contents writes to a temp file called
@@ -182,7 +187,6 @@ static void bitarray_save_frozen(const char * key, SerializedBitarray& ser)
 
     g_free(filename);
     free(contents);
-    free(ser.buffer);
 }
 
 static SerializedBitarray bitarray_load_frozen(const char * key)

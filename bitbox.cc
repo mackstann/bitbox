@@ -99,19 +99,6 @@ static void bitarray_dump(bitarray_t * b)
 }
 #endif
 
-struct SerializedBitarray {
-    bitarray_t * b;
-
-    const char * key;
-    uint8_t * buffer;
-    int64_t bufsize;
-    int64_t uncompressed_size;
-    uint8_t is_compressed;
-
-    SerializedBitarray(bitarray_t * b);
-    SerializedBitarray(const char * key, uint8_t * buffer, int64_t bufsize, int64_t uncompressed_size, uint8_t is_compressed);
-};
-
 SerializedBitarray::SerializedBitarray(bitarray_t * b)
     : b(b), key(b->key), buffer(NULL), bufsize(0), uncompressed_size(0), is_compressed(0)
 {
@@ -147,6 +134,9 @@ SerializedBitarray::SerializedBitarray(bitarray_t * b)
 SerializedBitarray::SerializedBitarray(const char * key, uint8_t * buffer, int64_t bufsize, int64_t uncompressed_size, uint8_t is_compressed)
     : b(NULL), key(key), buffer(buffer), bufsize(bufsize), uncompressed_size(uncompressed_size), is_compressed(is_compressed)
 {
+    if(!buffer)
+        return;
+
     if(this->is_compressed)
     {
         uint8_t * tmp_buffer = (uint8_t *)malloc(this->uncompressed_size);
@@ -173,18 +163,18 @@ SerializedBitarray::SerializedBitarray(const char * key, uint8_t * buffer, int64
 // "key.RANDOM-GIBBERISH", which theoretically could be loaded accidentally if
 // someone requested that exact key at the right moment.  a more robust file
 // writing mechanism should eventually be used.
-static void bitarray_save_frozen(const char * key, uint8_t * buffer, int64_t bufsize, int64_t uncompressed_size, uint8_t is_compressed)
+static void bitarray_save_frozen(const char * key, SerializedBitarray& ser)
 {
     int64_t file_size = sizeof(uint8_t) // is_compressed boolean
                       + sizeof(int64_t) // uncompressed_size
-                      + bufsize;
+                      + ser.bufsize;
 
     uint8_t * contents = (uint8_t *)malloc(file_size);
 
-    memcpy(contents,                   &is_compressed,     sizeof(uint8_t));
-    memcpy(contents + sizeof(uint8_t), &uncompressed_size, sizeof(int64_t));
+    memcpy(contents,                   &ser.is_compressed,     sizeof(uint8_t));
+    memcpy(contents + sizeof(uint8_t), &ser.uncompressed_size, sizeof(int64_t));
     memcpy(contents + sizeof(uint8_t)
-                    + sizeof(int64_t), buffer, bufsize);
+                    + sizeof(int64_t), ser.buffer, ser.bufsize);
 
     char * filename = g_strdup_printf("data/%s", key);
 
@@ -192,51 +182,45 @@ static void bitarray_save_frozen(const char * key, uint8_t * buffer, int64_t buf
 
     g_free(filename);
     free(contents);
-    free(buffer);
+    free(ser.buffer);
 }
 
-static void bitarray_load_frozen(const char * key, uint8_t ** buffer, int64_t * bufsize, int64_t * uncompressed_size, uint8_t * is_compressed)
+static SerializedBitarray bitarray_load_frozen(const char * key)
 {
     char * filename = g_strdup_printf("data/%s", key);
     int64_t file_size;
     uint8_t * contents;
 
+    uint8_t * buffer = NULL;
+    uint8_t is_compressed = 0;
+    uint64_t bufsize = 0;
+    uint64_t uncompressed_size = 0;
+
     gboolean got_contents = g_file_get_contents(filename, (char **)&contents, (gsize *)&file_size, NULL);
     g_free(filename);
-    if(!got_contents)
+
+    if(got_contents)
     {
-        *buffer = NULL;
-        *bufsize = 0;
-        *uncompressed_size = 0;
-        *is_compressed = 0;
-        return;
+        is_compressed = contents[0];
+        uncompressed_size = ((int64_t *)(contents + sizeof(uint8_t)))[0];
+        bufsize = file_size - (sizeof(char) + sizeof(int64_t));
+        buffer = (uint8_t *)malloc(bufsize);
+        memcpy(buffer, contents + sizeof(uint8_t) + sizeof(int64_t), bufsize);
+        g_free(contents);
     }
 
-    *is_compressed = contents[0];
-    *uncompressed_size = ((int64_t *)(contents + sizeof(uint8_t)))[0];
-    *bufsize = file_size - (sizeof(char) + sizeof(int64_t));
-
-    *buffer = (uint8_t *)malloc(*bufsize);
-    memcpy(*buffer, contents + sizeof(uint8_t) + sizeof(int64_t), *bufsize);
-    g_free(contents);
+    return SerializedBitarray(key, buffer, bufsize, uncompressed_size, is_compressed);
 }
 
 static void bitarray_save_to_disk(bitarray_t * b)
 {
     SerializedBitarray ser(b);
-    bitarray_save_frozen(b->key, ser.buffer, ser.bufsize, ser.uncompressed_size, ser.is_compressed);
+    bitarray_save_frozen(b->key, ser);
 }
 
 static bitarray_t * bitarray_find_array_on_disk(const char * key)
 {
-    uint8_t is_compressed, * buffer;
-    int64_t bufsize, uncompressed_size;
-    bitarray_load_frozen(key, &buffer, &bufsize, &uncompressed_size, &is_compressed);
-
-    if(!buffer)
-        return NULL;
-
-    SerializedBitarray ser(key, buffer, bufsize, uncompressed_size, is_compressed);
+    SerializedBitarray ser = bitarray_load_frozen(key);
     return ser.b;
 }
 

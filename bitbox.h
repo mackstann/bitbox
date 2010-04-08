@@ -53,6 +53,19 @@ typedef struct {
     char * key;
 } bitarray_t;
 
+struct SerializedBitarray {
+    bitarray_t * b;
+
+    const char * key;
+    uint8_t * buffer;
+    int64_t bufsize;
+    int64_t uncompressed_size;
+    uint8_t is_compressed;
+
+    SerializedBitarray(bitarray_t * b);
+    SerializedBitarray(const char * key, uint8_t * buffer, int64_t bufsize, int64_t uncompressed_size, uint8_t is_compressed);
+};
+
 // bitbox
 
 class Bitbox {

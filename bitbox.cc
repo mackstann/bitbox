@@ -99,58 +99,74 @@ static void bitarray_dump(bitarray_t * b)
 }
 #endif
 
-static int bitarray_freeze(bitarray_t * b, uint8_t ** out_buffer, int64_t * out_bufsize, int64_t * uncompressed_size)
+struct SerializedBitarray {
+    bitarray_t * b;
+
+    const char * key;
+    uint8_t * buffer;
+    int64_t bufsize;
+    int64_t uncompressed_size;
+    uint8_t is_compressed;
+
+    SerializedBitarray(bitarray_t * b);
+    SerializedBitarray(const char * key, uint8_t * buffer, int64_t bufsize, int64_t uncompressed_size, uint8_t is_compressed);
+};
+
+SerializedBitarray::SerializedBitarray(bitarray_t * b)
+    : b(b), key(b->key), buffer(NULL), bufsize(0), uncompressed_size(0), is_compressed(0)
 {
     assert((b->size && b->array) || (!b->size && !b->array));
-    *uncompressed_size = sizeof(int64_t)*2 + b->size;
-    uint8_t * buffer = (uint8_t *)malloc(*uncompressed_size);
+    this->uncompressed_size = sizeof(int64_t)*2 + b->size;
+    uint8_t * buffer = (uint8_t *)malloc(this->uncompressed_size);
     ((int64_t *)buffer)[0] = b->size;
     ((int64_t *)buffer)[1] = b->offset;
 
     if(b->array)
         memcpy(buffer + sizeof(int64_t)*2, b->array, b->size);
 
-    *out_buffer = (uint8_t *)malloc(*uncompressed_size);
-    *out_bufsize = lzf_compress(buffer, *uncompressed_size, *out_buffer, *uncompressed_size);
+    this->buffer = (uint8_t *)malloc(this->uncompressed_size);
+    this->bufsize = lzf_compress(buffer, this->uncompressed_size, this->buffer, this->uncompressed_size);
 
-    // compression succeeded
-    if(*out_bufsize > 0)
+    if(this->bufsize > 0)
     {
+        // compression succeeded
         free(buffer);
-        return 1;
-    }
-
-    // compression resulted in larger data (fairly common for tiny values), so
-    // return uncompressed data.
-    free(*out_buffer);
-    *out_buffer = buffer;
-    *out_bufsize = *uncompressed_size;
-    return 0;
-}
-
-static bitarray_t * bitarray_thaw(const char * key, uint8_t * buffer, int64_t bufsize, int64_t uncompressed_size, uint8_t is_compressed)
-{
-    if(is_compressed)
-    {
-        uint8_t * tmp_buffer = (uint8_t *)malloc(uncompressed_size);
-        assert(lzf_decompress(buffer, bufsize, tmp_buffer, uncompressed_size) == uncompressed_size);
-        free(buffer);
-        buffer = tmp_buffer;
+        this->is_compressed = 1;
     }
     else
-        assert(uncompressed_size == bufsize);
-
-    bitarray_t * b = bitarray_new(key, -1);
-    b->size   = ((int64_t *)buffer)[0];
-    b->offset = ((int64_t *)buffer)[1];
-    b->array = NULL;
-    if(b->size)
     {
-        b->array = (uint8_t *)malloc(b->size);
-        memcpy(b->array, buffer + sizeof(int64_t)*2, b->size);
+        // compression resulted in larger data (fairly common for tiny values), so
+        // return uncompressed data.
+        free(this->buffer);
+        this->buffer = buffer;
+        this->bufsize = this->uncompressed_size;
+        this->is_compressed = 0;
     }
-    free(buffer);
-    return b;
+}
+
+SerializedBitarray::SerializedBitarray(const char * key, uint8_t * buffer, int64_t bufsize, int64_t uncompressed_size, uint8_t is_compressed)
+    : b(NULL), key(key), buffer(buffer), bufsize(bufsize), uncompressed_size(uncompressed_size), is_compressed(is_compressed)
+{
+    if(this->is_compressed)
+    {
+        uint8_t * tmp_buffer = (uint8_t *)malloc(this->uncompressed_size);
+        assert(lzf_decompress(this->buffer, this->bufsize, tmp_buffer, this->uncompressed_size) == this->uncompressed_size);
+        free(this->buffer);
+        this->buffer = tmp_buffer;
+    }
+    else
+        assert(this->uncompressed_size == this->bufsize);
+
+    this->b = bitarray_new(key, -1);
+    this->b->size   = ((int64_t *)this->buffer)[0];
+    this->b->offset = ((int64_t *)this->buffer)[1];
+    this->b->array = NULL;
+    if(this->b->size)
+    {
+        this->b->array = (uint8_t *)malloc(b->size);
+        memcpy(this->b->array, this->buffer + sizeof(int64_t)*2, this->b->size);
+    }
+    free(this->buffer);
 }
 
 // XXX: g_file_set_contents writes to a temp file called
@@ -207,11 +223,8 @@ static void bitarray_load_frozen(const char * key, uint8_t ** buffer, int64_t * 
 
 static void bitarray_save_to_disk(bitarray_t * b)
 {
-    uint8_t * buffer;
-    int64_t bufsize;
-    int64_t uncompressed_size;
-    uint8_t is_compressed = bitarray_freeze(b, &buffer, &bufsize, &uncompressed_size);
-    bitarray_save_frozen(b->key, buffer, bufsize, uncompressed_size, is_compressed);
+    SerializedBitarray ser(b);
+    bitarray_save_frozen(b->key, ser.buffer, ser.bufsize, ser.uncompressed_size, ser.is_compressed);
 }
 
 static bitarray_t * bitarray_find_array_on_disk(const char * key)
@@ -223,7 +236,8 @@ static bitarray_t * bitarray_find_array_on_disk(const char * key)
     if(!buffer)
         return NULL;
 
-    return bitarray_thaw(key, buffer, bufsize, uncompressed_size, is_compressed);
+    SerializedBitarray ser(key, buffer, bufsize, uncompressed_size, is_compressed);
+    return ser.b;
 }
 
 static void bitarray_grow_up(bitarray_t * b, int64_t size)

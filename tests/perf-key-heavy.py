@@ -19,11 +19,9 @@ transport.open()
 
 prefix = str('%0.12f' % random.random())
 
-for i in xrange(30000000):
-    if i % 10000 == 0:
-        print i
+for i in xrange(7000):
     key = prefix + str(i)
     client.set_bit(key, 0)
-    if i % 10000 == 0:
+    if i % 100 == 0:
         assert client.get_bit(key, 0) == 1
         assert client.get_bit(key, 1) == 0

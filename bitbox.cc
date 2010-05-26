@@ -4,6 +4,9 @@
 #include <sys/time.h>
 #include <assert.h>
 
+#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/binary_iarchive.hpp>
+
 // we must explicitly request the PRId64 etc. macros in C++.
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
@@ -45,39 +48,30 @@ static int64_t _get_time(void)
 
 // private bitarray functions
 
-static void bitarray_init_data(bitarray_t * b, int64_t start_bit)
+void Bitarray::init_data(int64_t start_bit)
 {
-    b->offset = start_bit/8;
-    b->size = MIN_ARRAY_SIZE;
-    b->array = (uint8_t *)calloc(b->size, 1);
-    assert(b->array);
+    this->offset = start_bit/8;
+    this->size = MIN_ARRAY_SIZE;
+    this->array = (uint8_t *)calloc(this->size, 1);
+    assert(this->array);
 }
 
-static bitarray_t * bitarray_new(const char * key, int64_t start_bit)
+Bitarray::Bitarray(const char * key, int64_t start_bit)
+    : array(NULL), size(0), offset(0)
 {
-    bitarray_t * b = (bitarray_t *)malloc(sizeof(bitarray_t));
-    assert(b);
-
-    b->last_access = _get_time();
-    b->offset = 0;
-    b->size = 0;
-    b->array = NULL;
-    b->key = strdup(key);
+    this->last_access = _get_time();
+    this->key = strdup(key);
 
     if(start_bit > -1)
-        bitarray_init_data(b, start_bit);
-
-    return b;
+        this->init_data(start_bit);
 }
 
-static void bitarray_free(bitarray_t * b)
+Bitarray::~Bitarray()
 {
-    assert(b);
-    assert(b->key);
-    free(b->key);
-    if(b->array)
-        free(b->array);
-    free(b);
+    assert(this->key);
+    free(this->key);
+    if(this->array)
+        free(this->array);
 }
 
 #if 0
@@ -105,7 +99,19 @@ SerializedBitarray::~SerializedBitarray()
         free(this->buffer);
 }
 
-SerializedBitarray::SerializedBitarray(bitarray_t * b)
+//namespace boost {
+//namespace serialization {
+//    template<class Archive>
+//    void serialize(Archive & ar, gps_position & g, const unsigned int version)
+//    {
+//        ar & g.degrees;
+//        ar & g.minutes;
+//        ar & g.seconds;
+//    }
+//}
+//}
+
+SerializedBitarray::SerializedBitarray(Bitarray * b)
     : b(b), key(b->key), buffer(NULL), bufsize(0), uncompressed_size(0), is_compressed(0)
 {
     assert((b->size && b->array) || (!b->size && !b->array));
@@ -153,7 +159,7 @@ SerializedBitarray::SerializedBitarray(const char * key, uint8_t * buffer, int64
     else
         assert(this->uncompressed_size == this->bufsize);
 
-    this->b = bitarray_new(key, -1);
+    this->b = new Bitarray(key, -1);
     this->b->size   = ((int64_t *)this->buffer)[0];
     this->b->offset = ((int64_t *)this->buffer)[1];
     this->b->array = NULL;
@@ -168,7 +174,7 @@ SerializedBitarray::SerializedBitarray(const char * key, uint8_t * buffer, int64
 // "key.RANDOM-GIBBERISH", which theoretically could be loaded accidentally if
 // someone requested that exact key at the right moment.  a more robust file
 // writing mechanism should eventually be used.
-static void bitarray_save_frozen(const char * key, SerializedBitarray& ser)
+void Bitarray::save_frozen(const char * key, SerializedBitarray& ser)
 {
     int64_t file_size = sizeof(uint8_t) // is_compressed boolean
                       + sizeof(int64_t) // uncompressed_size
@@ -189,7 +195,7 @@ static void bitarray_save_frozen(const char * key, SerializedBitarray& ser)
     free(contents);
 }
 
-static SerializedBitarray bitarray_load_frozen(const char * key)
+SerializedBitarray Bitarray::load_frozen(const char * key)
 {
     char * filename = g_strdup_printf("data/%s", key);
     int64_t file_size;
@@ -216,95 +222,95 @@ static SerializedBitarray bitarray_load_frozen(const char * key)
     return SerializedBitarray(key, buffer, bufsize, uncompressed_size, is_compressed);
 }
 
-static void bitarray_save_to_disk(bitarray_t * b)
+void Bitarray::save_to_disk()
 {
-    SerializedBitarray ser(b);
-    bitarray_save_frozen(b->key, ser);
+    SerializedBitarray ser(this);
+    Bitarray::save_frozen(this->key, ser);
 }
 
-static bitarray_t * bitarray_find_array_on_disk(const char * key)
+Bitarray * Bitarray::find_on_disk(const char * key)
 {
-    SerializedBitarray ser = bitarray_load_frozen(key);
+    SerializedBitarray ser = Bitarray::load_frozen(key);
     return ser.b;
 }
 
-static void bitarray_grow_up(bitarray_t * b, int64_t size)
+void Bitarray::grow_up(int64_t size)
 {
     uint8_t * new_array = (uint8_t *)calloc(size, 1);
-    memcpy(new_array, b->array, b->size);
-    free(b->array);
-    b->array = new_array;
-    b->size = size;
+    memcpy(new_array, this->array, this->size);
+    free(this->array);
+    this->array = new_array;
+    this->size = size;
 }
 
-static void bitarray_grow_down(bitarray_t * b, int64_t new_size)
+void Bitarray::grow_down(int64_t new_size)
 {
     // move the starting point back
-    int64_t grow_by = new_size - b->size;
-    int64_t new_begin = b->offset - grow_by;
+    int64_t grow_by = new_size - this->size;
+    int64_t new_begin = this->offset - grow_by;
 
     // if we went too far, past 0, then just reset the start to 0.
     if(new_begin < 0)
     {
         new_begin = 0;
-        grow_by = b->offset;
-        new_size = b->offset + b->size;
+        grow_by = this->offset;
+        new_size = this->offset + this->size;
     }
 
     uint8_t * new_array = (uint8_t *)calloc(new_size, 1);
-    memcpy(new_array + grow_by, b->array, b->size);
-    free(b->array);
+    memcpy(new_array + grow_by, this->array, this->size);
+    free(this->array);
 
-    b->array = new_array;
-    b->size = new_size;
-    b->offset = new_begin;
+    this->array = new_array;
+    this->size = new_size;
+    this->offset = new_begin;
 }
 
-static void bitarray_adjust_size_to_reach(bitarray_t * b, int64_t new_index)
+void Bitarray::adjust_size_to_reach(int64_t new_index)
 {
-    if(BYTE_OFFSET(new_index) >= b->offset + b->size)
+    if(BYTE_OFFSET(new_index) >= this->offset + this->size)
     {
-        int64_t min_increase_needed = BYTE_OFFSET(new_index) - (b->offset + b->size - 1);
-        int64_t new_size = MAX(b->size + min_increase_needed, b->size * 2);
-        bitarray_grow_up(b, new_size);
+        int64_t min_increase_needed = BYTE_OFFSET(new_index) - (this->offset + this->size - 1);
+        int64_t new_size = MAX(this->size + min_increase_needed, this->size * 2);
+        this->grow_up(new_size);
     }
-    if(BYTE_OFFSET(new_index) - b->offset < 0)
+    if(BYTE_OFFSET(new_index) - this->offset < 0)
     {
-        int64_t min_increase_needed = b->offset - BYTE_OFFSET(new_index);
-        int64_t new_size = MAX(b->size + min_increase_needed, b->size * 2);
-        bitarray_grow_down(b, new_size);
+        int64_t min_increase_needed = this->offset - BYTE_OFFSET(new_index);
+        int64_t new_size = MAX(this->size + min_increase_needed, this->size * 2);
+        this->grow_down(new_size);
     }
 }
 
 // public bitarray api
 
-int bitarray_get_bit(bitarray_t * b, int64_t index)
+int Bitarray::get_bit(int64_t index)
 {
-    b->last_access = _get_time();
+    this->last_access = _get_time();
 
-    if(!b->array || b->offset + b->size < index/8+1 || index/8 < b->offset)
+    if(!this->array || this->offset + this->size < index/8+1 || index/8 < this->offset)
         return 0;
 
-    return BYTE_SLOT(b, index) & MASK(index) ? 1 : 0;
+    return BYTE_SLOT(this, index) & MASK(index) ? 1 : 0;
 }
 
-void bitarray_set_bit(bitarray_t * b, int64_t index)
+void Bitarray::set_bit(int64_t index)
 {
-    b->last_access = _get_time();
+    this->last_access = _get_time();
 
-    if(!b->array)
-        bitarray_init_data(b, index);
+    if(!this->array)
+        this->init_data(index);
 
-    bitarray_adjust_size_to_reach(b, index);
+    this->adjust_size_to_reach(index);
 
     assert(index >= 0);
-    assert(b->offset >= 0);
-    if(BYTE_OFFSET(index) - b->offset < 0)
+    assert(this->offset >= 0);
+    if(BYTE_OFFSET(index) - this->offset < 0)
     {
         abort();
     }
-    assert(BYTE_OFFSET(index) - b->offset <  b->size);
-    BYTE_SLOT(b, index) |= MASK(index);
+    assert(BYTE_OFFSET(index) - this->offset <  this->size);
+    BYTE_SLOT(this, index) |= MASK(index);
 }
 
 // public bitbox api
@@ -328,7 +334,7 @@ Bitbox::~Bitbox()
     Bitbox::hash_t::iterator it = this->hash.begin();
     for(; it != this->hash.end(); ++it)
     {
-        bitarray_free(it->second);
+        delete it->second;
         this->hash.erase(it);
     }
 }
@@ -360,37 +366,37 @@ void Bitbox::update_key_in_lru(const char * key, int64_t old_timestamp, int64_t 
     // could be smarter about reusing the key instead of always freeing & re-copying
 }
 
-bitarray_t * Bitbox::find_array_in_memory(const char * key)
+Bitarray * Bitbox::find_array_in_memory(const char * key)
 {
     Bitbox::hash_t::iterator it = this->hash.find(key);
     return it == this->hash.end() ? NULL : it->second;
 }
 
-void Bitbox::add_array_to_hash(bitarray_t * b)
+void Bitbox::add_array_to_hash(Bitarray * b)
 {
     this->hash[b->key] = b;
     this->update_key_in_lru(b->key, 0, b->last_access);
 }
 
-bitarray_t * Bitbox::find_array(const char * key)
+Bitarray * Bitbox::find_array(const char * key)
 {
-    bitarray_t * b = this->find_array_in_memory(key);
+    Bitarray * b = this->find_array_in_memory(key);
     if(b)
         return b;
 
-    b = bitarray_find_array_on_disk(key);
+    b = Bitarray::find_on_disk(key);
     if(b)
         this->add_array_to_hash(b);
 
     return b;
 }
 
-bitarray_t * Bitbox::find_or_create_array(const char * key)
+Bitarray * Bitbox::find_or_create_array(const char * key)
 {
-    bitarray_t * b = Bitbox::find_array(key);
+    Bitarray * b = Bitbox::find_array(key);
     if(!b)
     {
-        b = bitarray_new(key, -1);
+        b = new Bitarray(key, -1);
         this->add_array_to_hash(b);
     }
     return b;
@@ -405,12 +411,12 @@ void Bitbox::downsize_if_angry()
         this->downsize_single_step(BITBOX_ITEM_PEAK_LIMIT);
 }
 
-void Bitbox::set_bit_nolookup(bitarray_t * b, int64_t bit)
+void Bitbox::set_bit_nolookup(Bitarray * b, int64_t bit)
 {
     assert(b);
     int64_t old_timestamp = b->last_access;
 
-    bitarray_set_bit(b, bit);
+    b->set_bit(bit);
 
     this->update_key_in_lru(b->key, old_timestamp, b->last_access);
 
@@ -419,20 +425,20 @@ void Bitbox::set_bit_nolookup(bitarray_t * b, int64_t bit)
 
 void Bitbox::set_bit(const char * key, int64_t bit)
 {
-    bitarray_t * b = Bitbox::find_or_create_array(key);
+    Bitarray * b = Bitbox::find_or_create_array(key);
     this->set_bit_nolookup(b, bit);
     this->downsize_if_angry();
 }
 
 int Bitbox::get_bit(const char * key, int64_t bit)
 {
-    bitarray_t * b = this->find_array(key);
+    Bitarray * b = this->find_array(key);
 
     if(!b)
         return 0;
 
     int64_t old_timestamp = b->last_access;
-    int retval = bitarray_get_bit(b, bit);
+    int retval = b->get_bit(bit);
 
     this->update_key_in_lru(key, old_timestamp, b->last_access);
 
@@ -450,13 +456,13 @@ void Bitbox::banish_oldest_item_to_disk()
     char * key = it->second;
     this->lru.erase(it);
 
-    bitarray_t * b = this->find_array_in_memory(key);
+    Bitarray * b = this->find_array_in_memory(key);
     assert(b);
-    bitarray_save_to_disk(b);
+    b->save_to_disk();
     this->hash.erase(key);
     this->need_disk_write.erase(b);
 
-    bitarray_free(b);
+    delete b;
     free(key);
 }
 
@@ -474,7 +480,7 @@ void Bitbox::write_one_to_disk()
     Bitbox::need_disk_write_set_t::iterator it = this->need_disk_write.begin();
     if(it != this->need_disk_write.end())
     {
-        bitarray_save_to_disk(*it);
+        (*it)->save_to_disk();
         this->need_disk_write.erase(it);
         DEBUG("wrote one to disk. %lu left\n", this->need_disk_write.size());
     }

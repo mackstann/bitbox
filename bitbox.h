@@ -40,7 +40,9 @@ struct eqstr
 
 // bitarray
 
-typedef struct {
+struct SerializedBitarray;
+
+struct Bitarray {
     uint8_t * array;
     int64_t size; // actual number of bytes allocated in array
 
@@ -51,10 +53,26 @@ typedef struct {
     // so we can flush less-used data to disk.
     int64_t last_access;
     char * key;
-} bitarray_t;
+
+    Bitarray(const char * key, int64_t start_bit);
+    ~Bitarray();
+
+    void init_data(int64_t start_bit);
+    void dump();
+    void save_frozen(const char * key, SerializedBitarray& ser);
+    static SerializedBitarray load_frozen(const char * key);
+    void save_to_disk();
+    void grow_up(int64_t size);
+    void grow_down(int64_t new_size);
+    void adjust_size_to_reach(int64_t new_index);
+    int get_bit(int64_t index);
+    void set_bit(int64_t index);
+
+    static Bitarray * find_on_disk(const char * key);
+};
 
 struct SerializedBitarray {
-    bitarray_t * b;
+    Bitarray * b;
 
     const char * key;
     uint8_t * buffer;
@@ -63,7 +81,7 @@ struct SerializedBitarray {
     uint8_t is_compressed;
 
     ~SerializedBitarray();
-    SerializedBitarray(bitarray_t * b);
+    SerializedBitarray(Bitarray * b);
     SerializedBitarray(const char * key, uint8_t * buffer, int64_t bufsize, int64_t uncompressed_size, uint8_t is_compressed);
 };
 
@@ -71,12 +89,12 @@ struct SerializedBitarray {
 
 class Bitbox {
 private:
-    typedef google::sparse_hash_map<const char *, bitarray_t *, bitbox_str_hasher, eqstr> hash_t;
+    typedef google::sparse_hash_map<const char *, Bitarray *, bitbox_str_hasher, eqstr> hash_t;
     typedef std::multimap<const int64_t, char *> lru_map_t;
-    typedef google::sparse_hash_set<bitarray_t *> need_disk_write_set_t;
+    typedef google::sparse_hash_set<Bitarray *> need_disk_write_set_t;
 
     // the main way we access data.  the key is an arbitrary string and the
-    // value is a bitarray_t.
+    // value is a Bitarray.
     hash_t hash;
 
     // we use this to implement efficient dump-to-disk behavior to keep memory
@@ -86,7 +104,7 @@ private:
 
     // this is to prevent having memory get too out of sync with the disk,
     // causing lots of data loss in case of an unclean shutdown.  it stores
-    // a set of items of the type bitarray_t*
+    // a set of items of the type Bitarray*
     need_disk_write_set_t need_disk_write;
 
 public:
@@ -100,7 +118,7 @@ public:
     template<typename ConstIterator>
     void set_bits(const char * key, ConstIterator begin, ConstIterator end)
     {
-        bitarray_t * b = this->find_or_create_array(key);
+        Bitarray * b = this->find_or_create_array(key);
         for(ConstIterator it = begin; it != end; ++it)
             this->set_bit_nolookup(b, *it);
         this->downsize_if_angry();
@@ -111,20 +129,20 @@ private:
     void diskwrite_single_step();
 
 public:
-    bitarray_t * find_array          (const char * key);
-    bitarray_t * find_or_create_array(const char * key);
+    Bitarray * find_array          (const char * key);
+    Bitarray * find_or_create_array(const char * key);
 
     bool run_maintenance_step();
 
 private:
     void update_key_in_lru(const char * key, int64_t old_timestamp, int64_t new_timestamp);
-    void add_array_to_hash(bitarray_t * b);
+    void add_array_to_hash(Bitarray * b);
     void downsize_if_angry();
-    void set_bit_nolookup(bitarray_t * b, int64_t bit);
+    void set_bit_nolookup(Bitarray * b, int64_t bit);
     void banish_oldest_item_to_disk();
     void write_one_to_disk();
 
-    bitarray_t * find_array_in_memory(const char * key);
+    Bitarray * find_array_in_memory(const char * key);
 };
 
 #endif

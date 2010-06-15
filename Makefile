@@ -10,11 +10,11 @@ gen-php: bitbox.thrift *.cpp Makefile
 COMPILE_FLAGS=-O2 -Wall `pkg-config --cflags glib-2.0` \
 	      -I. -Igen-cpp -Iliblzf-3.5 -I/usr/local/include/thrift
 
-LINK_FLAGS=`pkg-config --libs glib-2.0` -lthrift
+LINK_FLAGS=`pkg-config --libs glib-2.0` -lthrift -lthriftnb -levent
 
 bitbox-server: gen-cpp bitbox.cc bitbox.h server.cpp Makefile
 	gcc $(COMPILE_FLAGS) -c bitbox.cc -std=gnu++0x       -o bitbox.o
-	gcc $(COMPILE_FLAGS) -c server.cpp                   -o server.o
+	gcc $(COMPILE_FLAGS) -c server.cpp -std=gnu++0x      -o server.o
 	gcc $(COMPILE_FLAGS) -c gen-cpp/bitbox_constants.cpp -o bitbox_constants.o
 	gcc $(COMPILE_FLAGS) -c gen-cpp/bitbox_types.cpp     -o bitbox_types.o
 	gcc $(COMPILE_FLAGS) -c gen-cpp/Bitbox.cpp           -o Bitbox.o

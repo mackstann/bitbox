@@ -10,6 +10,7 @@
 #include <google/sparse_hash_map>
 #include <google/sparse_hash_set>
 #include <map>
+#include <thread>
 
 #define BITBOX_ITEM_LIMIT       1500
 #define BITBOX_ITEM_PEAK_LIMIT  2000
@@ -92,6 +93,8 @@ private:
     typedef google::sparse_hash_map<const char *, Bitarray *, bitbox_str_hasher, eqstr> hash_t;
     typedef std::multimap<const int64_t, char *> lru_map_t;
     typedef google::sparse_hash_set<Bitarray *> need_disk_write_set_t;
+
+    std::mutex mu;
 
     // the main way we access data.  the key is an arbitrary string and the
     // value is a Bitarray.

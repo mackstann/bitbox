@@ -2,7 +2,7 @@
 
 #include "Bitbox.h"
 #include <protocol/TBinaryProtocol.h>
-#include <server/TSimpleServer.h>
+#include <server/TNonblockingServer.h>
 #include <transport/TServerSocket.h>
 #include <transport/TBufferTransports.h>
 
@@ -38,12 +38,13 @@ class BitboxHandler : virtual public BitboxIf {
     private:
         void schedule_maintenance()
         {
-            if(!maintenance_running)
-            {
-                fprintf(stderr, "adding the maintenance callback.\n");
-                g_idle_add(idle_maintenance, &this->box);
-                maintenance_running = true;
-            }
+            //if(!maintenance_running)
+            //{
+                //fprintf(stderr, "adding the maintenance callback.\n");
+                //g_idle_add(idle_maintenance, &this->box);
+                idle_maintenance(&this->box);
+                //maintenance_running = true;
+            //}
         }
     public:
         Bitbox box;
@@ -71,40 +72,40 @@ class BitboxHandler : virtual public BitboxIf {
         }
 };
 
-gboolean server_prepare_callback(GSource * source, gint * timeout_) {
-    *timeout_ = -1;
-    return FALSE;
-}
-
-typedef struct {
-    GSource source;
-    GPollFD poll_fd;
-} ServerSource;
-
-gboolean server_check_callback(GSource * source)
-{
-    ServerSource * ssource = (ServerSource *)source;
-    //fprintf(stderr, "IO IN? %d\n", ssource->poll_fd.revents & G_IO_IN ? 1 : 0);
-    return ssource->poll_fd.revents & G_IO_IN ? TRUE : FALSE;
-}
-
-TSimpleServer * global_server = NULL;
-gboolean server_dispatch_callback(GSource * source, GSourceFunc callback, gpointer user_data)
-{
-    // XXX use g_source_set_callback() to do the callback properly without a global.
-    fprintf(stderr, "SERVE\n");
-    global_server->serve();
-    return TRUE;
-}
-
-static GMainLoop * loop;
-
-gboolean signal_check(gpointer data)
-{
-    if(sigh_poll((sigset_t *)data))
-        g_main_loop_quit(loop);
-    return TRUE;
-}
+//gboolean server_prepare_callback(GSource * source, gint * timeout_) {
+//    *timeout_ = -1;
+//    return FALSE;
+//}
+//
+//typedef struct {
+//    GSource source;
+//    GPollFD poll_fd;
+//} ServerSource;
+//
+//gboolean server_check_callback(GSource * source)
+//{
+//    ServerSource * ssource = (ServerSource *)source;
+//    //fprintf(stderr, "IO IN? %d\n", ssource->poll_fd.revents & G_IO_IN ? 1 : 0);
+//    return ssource->poll_fd.revents & G_IO_IN ? TRUE : FALSE;
+//}
+//
+//TSimpleServer * global_server = NULL;
+//gboolean server_dispatch_callback(GSource * source, GSourceFunc callback, gpointer user_data)
+//{
+//    // XXX use g_source_set_callback() to do the callback properly without a global.
+//    fprintf(stderr, "SERVE\n");
+//    global_server->serve();
+//    return TRUE;
+//}
+//
+//static GMainLoop * loop;
+//
+//gboolean signal_check(gpointer data)
+//{
+//    if(sigh_poll((sigset_t *)data))
+//        g_main_loop_quit(loop);
+//    return TRUE;
+//}
 
 int main(int argc, char **argv) {
   int port = 9090;
@@ -114,47 +115,45 @@ int main(int argc, char **argv) {
 
   shared_ptr<BitboxHandler> handler(new BitboxHandler());
   shared_ptr<TProcessor> processor(new BitboxProcessor(handler));
-  shared_ptr<TServerTransport> serverTransport(new TServerSocket(port));
-  shared_ptr<TTransportFactory> transportFactory(new TBufferedTransportFactory());
-  shared_ptr<TProtocolFactory> protocolFactory(new TBinaryProtocolFactory());
 
-  TSimpleServer server(processor, serverTransport, transportFactory, protocolFactory, true);
-  global_server = &server;
-  serverTransport->listen(); // XXX should catch TTransportException
-  std::vector<struct pollfd> fds = serverTransport->getFDs();
+  TNonblockingServer server(processor, port);
+  //global_server = &server;
 
-  // add the server polling source to the main loop
+  //// add the server polling source to the main loop
 
-  loop = g_main_loop_new(NULL, FALSE);
+  //loop = g_main_loop_new(NULL, FALSE);
 
-  GSourceFuncs sourcefuncs;
+  //GSourceFuncs sourcefuncs;
 
-  sourcefuncs.prepare = server_prepare_callback;
-  sourcefuncs.check = server_check_callback;
-  sourcefuncs.dispatch = server_dispatch_callback;
-  sourcefuncs.finalize = NULL;
-  sourcefuncs.closure_callback = NULL;
-  sourcefuncs.closure_marshal = NULL;
+  //sourcefuncs.prepare = server_prepare_callback;
+  //sourcefuncs.check = server_check_callback;
+  //sourcefuncs.dispatch = server_dispatch_callback;
+  //sourcefuncs.finalize = NULL;
+  //sourcefuncs.closure_callback = NULL;
+  //sourcefuncs.closure_marshal = NULL;
 
-  for(std::vector<struct pollfd>::iterator it = fds.begin(); it != fds.end(); ++it)
-  {
-      ServerSource * source = (ServerSource *)g_source_new(&sourcefuncs, sizeof(ServerSource));
-      source->poll_fd.fd = it->fd;
-      source->poll_fd.events = G_IO_IN;
-      g_source_add_poll((GSource *)source, &source->poll_fd);
-      g_source_attach((GSource *)source, NULL);
-  }
+  //for(std::vector<struct pollfd>::iterator it = fds.begin(); it != fds.end(); ++it)
+  //{
+  //    ServerSource * source = (ServerSource *)g_source_new(&sourcefuncs, sizeof(ServerSource));
+  //    source->poll_fd.fd = it->fd;
+  //    source->poll_fd.events = G_IO_IN;
+  //    g_source_add_poll((GSource *)source, &source->poll_fd);
+  //    g_source_attach((GSource *)source, NULL);
+  //}
 
-  g_timeout_add_seconds(1, signal_check, &sigs);
+  //g_timeout_add_seconds(1, signal_check, &sigs);
 
-  // start the main loop
+  //// start the main loop
 
-  g_main_loop_run(loop);
+  //g_main_loop_run(loop);
 
   // shutdown
 
   fprintf(stderr, "shutting down.\n");
-  handler->shutdown();
+  server.serve();
+
+  event_base_loopbreak(server.getEventBase());
+  //server.thread()->join();
   fprintf(stderr, "shutdown cleanly.\n");
 
   return 0;

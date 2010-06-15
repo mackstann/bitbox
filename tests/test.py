@@ -10,7 +10,7 @@ from thrift.transport import TTransport
 from thrift.protocol import TBinaryProtocol
 
 transport = TSocket.TSocket('localhost', 9090)
-transport = TTransport.TBufferedTransport(transport)
+transport = TTransport.TFramedTransport(transport)
 protocol = TBinaryProtocol.TBinaryProtocol(transport)
 
 client = Bitbox.Client(protocol)
